@@ -1,0 +1,29 @@
+# 依赖与构建产物(镜像内会重新安装/构建)
+**/node_modules
+frontend/.next
+frontend/out
+backend/coverage
+frontend/coverage
+
+# 敏感与本地文件(绝不进镜像)
+**/.env
+**/.env.local
+**/.env.*.local
+.env.production
+backend/server.log
+*.log
+
+# 数据库/图片本地产物
+backend/nova-tasks.sqlite*
+backend/nova-images/
+
+# 版本控制与编辑器
+.git
+.gitignore
+.claude/
+.vscode/
+.cursor/
+.idea/
+
+# 文档/杂项(不影响运行)
+**/*.md

@@ -1,0 +1,31 @@
+# Nova Image Studio 生产编排(仅 nova 本体)
+# PostgreSQL / Redis / MinIO 由你服务器已有的服务提供,不在此文件内。
+# 连接信息全部来自 .env.production(见同目录 .env.production.example)。
+#
+# 启动:  docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# 日志:  docker compose -f docker-compose.prod.yml logs -f
+# 停止:  docker compose -f docker-compose.prod.yml down
+
+services:
+  nova:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nova-image-studio:latest
+    container_name: nova-image
+    restart: unless-stopped
+    # 端口映射:宿主机 3000 -> 容器 3000(可在 .env 用 NOVA_HOST_PORT 改宿主端口)
+    ports:
+      - "${NOVA_HOST_PORT:-3000}:3000"
+    env_file:
+      - .env.production
+    # 让容器能用 host.docker.internal 访问宿主机上的 PG/Redis/MinIO
+    # (Linux 上需要此项;若你的依赖服务也在 Docker 网络里,改用 networks 互联即可)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
