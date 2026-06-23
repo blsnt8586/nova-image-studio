@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { getAgentImageBytes } from '@/lib/agent-context-store';
+import { copyText } from '@/lib/clipboard';
 import type { AgentImageRecord } from '@/lib/agent-chat-config';
 import type { ImageActionPayload } from '@/lib/image-actions';
 import { cn, clampIndex } from '@/lib/utils';
@@ -418,9 +419,12 @@ export function AgentImageGallery({ images, onRedescribe }: AgentImageGalleryPro
                 size="sm"
                 className="gap-1"
                 onClick={() => {
-                  navigator.clipboard.writeText(descDialogImg.description).catch(() => {});
-                  setDescCopied(true);
-                  setTimeout(() => setDescCopied(false), 2000);
+                  void copyText(descDialogImg.description).then(ok => {
+                    if (ok) {
+                      setDescCopied(true);
+                      setTimeout(() => setDescCopied(false), 2000);
+                    }
+                  });
                 }}
               >
                 {descCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}

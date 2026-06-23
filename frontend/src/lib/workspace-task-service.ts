@@ -13,6 +13,7 @@ import {
   type GptImageQuality,
   type GptImageStyle,
   type ParallelCount,
+  type RetryData,
 } from '@/lib/model-capabilities';
 import { generateUUID } from '@/lib/uuid';
 import { downloadAndStoreImages, type DownloadResult, type ImageDownloadProgressItem } from '@/lib/image-downloader';
@@ -42,6 +43,53 @@ export interface ImageToImageSubmitInput {
   gptImageStyle: GptImageStyle;
   gptImageBackground: GptImageBackground;
   parallelCount: ParallelCount;
+}
+
+/**
+ * "重试"一个历史任务时,把 RetryData 转换成对应模式的提交入参。
+ * 返回判别联合(mode 字段),调用方据此分发到 submitTextToImage / submitImageToImage。
+ * 纯函数、不修改入参;图生图把 refImages 映射为去掉 badge 的 files。
+ */
+export type RetrySubmission =
+  | { mode: 'text-to-image'; input: TextToImageSubmitInput }
+  | { mode: 'image-to-image'; input: ImageToImageSubmitInput };
+
+export function retryDataToSubmission(data: RetryData): RetrySubmission {
+  const shared = {
+    outputSize: data.outputSize,
+    customSize: data.customSize,
+    aspectRatio: data.aspectRatio,
+    temperature: data.temperature,
+    model: data.model,
+    gptImageQuality: data.gptImageQuality,
+    gptImageStyle: data.gptImageStyle,
+    gptImageBackground: data.gptImageBackground,
+    parallelCount: data.parallelCount,
+  };
+
+  if (data.mode === 'image-to-image') {
+    return {
+      mode: 'image-to-image',
+      input: {
+        ...shared,
+        prompt: data.prompt,
+        files: (data.refImages ?? []).map(ref => ({
+          id: ref.id,
+          name: ref.name,
+          dataUrl: ref.dataUrl,
+          mimeType: ref.mimeType,
+        })),
+      },
+    };
+  }
+
+  return {
+    mode: 'text-to-image',
+    input: {
+      ...shared,
+      prompts: [data.prompt],
+    },
+  };
 }
 
 export interface SubmitActions {
@@ -357,6 +405,7 @@ export async function submitTextToImage(
         gptImageBackground: input.gptImageBackground,
         parallelCount: input.parallelCount,
         images: [],
+        keyId: provider.keyId,
       });
 
       actions.replaceJob(job.id, current => ({
@@ -424,6 +473,7 @@ export async function submitImageToImage(
       gptImageBackground: input.gptImageBackground,
       parallelCount: input.parallelCount,
       images: imageReferences,
+      keyId: provider.keyId,
     });
 
     actions.replaceJob(job.id, current => ({

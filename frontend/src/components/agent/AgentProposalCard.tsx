@@ -518,8 +518,7 @@ export function AgentProposalCard({
               gptImageStyle: value.style,
               gptImageBackground: value.background,
             }))}
-            variant="outline"
-            size="xs"
+            variant="inline"
             disabled={busy}
           />
         )}

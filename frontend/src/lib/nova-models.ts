@@ -1,7 +1,12 @@
 'use client';
 
+import { SUB2API_PROXY_API_KEY } from '@/lib/sub2api-token';
+import { PROXY_BASE_PATH } from '@/lib/sub2api-bootstrap';
+
 export type ProviderProtocol = 'google' | 'openai';
 export type ImageOutputSize = '512' | '1K' | '2K' | '4K';
+/** 模型来源:sub2api 入口下发(走代理) vs 用户手动添加。 */
+export type ImageModelSource = 'sub2api' | 'manual';
 export type BuiltinImagePresetId =
   | 'gemini-2.5-flash-image'
   | 'gemini-3-pro-image-preview'
@@ -19,6 +24,10 @@ export interface ImageModelConfig {
   maxRefImages: number;
   maxOutputSize: ImageOutputSize;
   supportsAdvancedParams: boolean;
+  /** sub2api 模型固定走代理;手动模型用户自配。旧配置可能缺省。 */
+  source?: ImageModelSource;
+  /** sub2api 模型选中的 API Key id(只存 keyId,sk- key 不进浏览器)。 */
+  keyId?: string;
 }
 
 export interface TextModelConfig {
@@ -29,6 +38,10 @@ export interface TextModelConfig {
   apiKey: string;
   baseUrl: string;
   note?: string;
+  /** sub2api 模型固定走代理;手动模型用户自配。旧配置可能缺省。 */
+  source?: ImageModelSource;
+  /** sub2api 模型选中的 API Key id(只存 keyId,sk- key 不进浏览器)。 */
+  keyId?: string;
 }
 
 export interface BuiltinImagePreset {
@@ -58,6 +71,9 @@ export interface NovaModelRegistry {
 }
 
 const REGISTRY_KEY = 'nova-model-registry';
+
+/** 导出仅供测试断言持久化 key(不要在业务代码里依赖)。 */
+export const REGISTRY_KEY_FOR_TEST = REGISTRY_KEY;
 
 export const BUILTIN_IMAGE_PRESETS: Record<BuiltinImagePresetId, BuiltinImagePreset> = {
   'gemini-2.5-flash-image': {
@@ -158,6 +174,34 @@ function inferBuiltinPresetId(raw: Partial<ImageModelConfig>): BuiltinImagePrese
   return 'gpt-image-2';
 }
 
+function isImageModelSource(value: unknown): value is ImageModelSource {
+  return value === 'sub2api' || value === 'manual';
+}
+
+/**
+ * 当前部署的代理端点(`<origin>/api/proxy`)。
+ * 本应用锁定为 sub2api 客户端:所有模型只走我们的后端代理,不允许指向外部服务。
+ * SSR/无 window 时回退相对路径(仅用于占位,真实请求都在浏览器侧)。
+ */
+function proxyEndpoint(): string {
+  const origin = typeof window !== 'undefined' && window.location ? window.location.origin : '';
+  return origin + PROXY_BASE_PATH;
+}
+
+/**
+ * 强制把模型收口为「走我们的代理」:source 固定 sub2api、apiKey 用哨兵(发请求时换 live JWT)、
+ * baseUrl 固定当前 origin 的代理路径。用于加载/保存归一,顺带纠正历史残留(如旧的
+ * localhost:3000/api/proxy 或外部 baseUrl)。仅保留用户可选的 keyId。
+ */
+function lockToProxy<T extends { protocol: ProviderProtocol; apiKey: string; baseUrl: string; source?: ImageModelSource }>(model: T): T {
+  return {
+    ...model,
+    apiKey: SUB2API_PROXY_API_KEY,
+    baseUrl: proxyEndpoint(),
+    source: 'sub2api',
+  };
+}
+
 function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelConfig | null {
   const presetId = inferBuiltinPresetId(raw);
   const preset = BUILTIN_IMAGE_PRESETS[presetId];
@@ -165,7 +209,7 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
   if (!id) return null;
 
   const protocol = isProviderProtocol(raw.protocol) ? raw.protocol : preset.protocol;
-  return {
+  const model: ImageModelConfig = {
     id,
     protocol,
     name: String(raw.name || '').trim(),
@@ -181,6 +225,16 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
       ? (typeof raw.supportsAdvancedParams === 'boolean' ? raw.supportsAdvancedParams : preset.supportsAdvancedParams)
       : false,
   };
+
+  // 可选字段:仅在合法时保留,保持旧配置向后兼容。
+  if (isImageModelSource(raw.source)) {
+    model.source = raw.source;
+  }
+  if (raw.keyId !== undefined && raw.keyId !== null && String(raw.keyId).trim()) {
+    model.keyId = String(raw.keyId).trim();
+  }
+  // 收口:所有图片模型只走我们的代理(纠正历史残留 / 外部 baseUrl)。
+  return lockToProxy(model);
 }
 
 function normalizeTextModelConfig(raw: Partial<TextModelConfig>): TextModelConfig | null {
@@ -188,7 +242,7 @@ function normalizeTextModelConfig(raw: Partial<TextModelConfig>): TextModelConfi
   if (!id) return null;
   const protocol = isProviderProtocol(raw.protocol) ? raw.protocol : 'openai';
   const template = getDefaultTextModelTemplate(protocol);
-  return {
+  const model: TextModelConfig = {
     id,
     protocol,
     name: String(raw.name || '').trim(),
@@ -197,6 +251,16 @@ function normalizeTextModelConfig(raw: Partial<TextModelConfig>): TextModelConfi
     baseUrl: String(raw.baseUrl || template.baseUrl).trim(),
     note: typeof raw.note === 'string' ? raw.note : template.note,
   };
+
+  // 可选字段:仅在合法时保留,保持旧配置向后兼容。
+  if (isImageModelSource(raw.source)) {
+    model.source = raw.source;
+  }
+  if (raw.keyId !== undefined && raw.keyId !== null && String(raw.keyId).trim()) {
+    model.keyId = String(raw.keyId).trim();
+  }
+  // 收口:所有文本模型只走我们的代理(纠正历史残留 / 外部 baseUrl)。
+  return lockToProxy(model);
 }
 
 function isCompleteImageModel(model: Partial<ImageModelConfig>): model is ImageModelConfig {
@@ -343,4 +407,26 @@ export function getImageModelOutputSizes(model: ImageModelConfig): ImageOutputSi
 
 export function generateModelId(prefix: string = 'model'): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Matches internal ids produced by generateModelId, e.g. `sub2api_1782097476153_137ok0`.
+const INTERNAL_ID_PATTERN = /^(img|txt|sub2api|model)_\d{10,}_[a-z0-9]+$/i;
+
+function usableLabel(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (INTERNAL_ID_PATTERN.test(trimmed)) return '';
+  return trimmed;
+}
+
+// Returns a human-readable label for a model. Historical dirty data stored the
+// internal generated id in `name`, so we skip it when it looks like one and fall
+// back to the real modelId, then the id.
+export function humanModelName(model: {
+  name?: string;
+  modelId?: string;
+  id?: string;
+}): string {
+  return usableLabel(model.name) || usableLabel(model.modelId) || usableLabel(model.id) || '未命名模型';
 }

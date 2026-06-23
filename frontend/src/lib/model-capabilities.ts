@@ -6,7 +6,7 @@ import {
   isGptImageModel,
   type ModelId,
 } from '@/lib/gemini-config';
-import { getImageModelById, loadRegistry } from '@/lib/nova-models';
+import { getImageModelById, loadRegistry, BUILTIN_IMAGE_PRESETS, type BuiltinImagePresetId } from '@/lib/nova-models';
 import type { AspectRatio, OutputSize, RefImageData, StoredJob } from '@/lib/job-store';
 
 export type ParallelCount = 1 | 2 | 3 | 4;
@@ -56,40 +56,40 @@ export const GPT_IMAGE_BACKGROUND_OPTIONS: { value: GptImageBackground; label: s
 ];
 
 const BANANA_ASPECT_RATIOS: { value: AspectRatio; label: string; resolution: string }[] = [
-  { value: '1:1', label: '正方形', resolution: '1024x1024' },
-  { value: '2:3', label: '竖向', resolution: '832x1248' },
-  { value: '3:2', label: '横向', resolution: '1248x832' },
-  { value: '3:4', label: '竖向', resolution: '864x1184' },
-  { value: '4:3', label: '横向', resolution: '1184x864' },
-  { value: '4:5', label: '竖向', resolution: '896x1152' },
-  { value: '5:4', label: '横向', resolution: '1152x896' },
-  { value: '9:16', label: '竖屏', resolution: '768x1344' },
-  { value: '16:9', label: '宽屏', resolution: '1344x768' },
-  { value: '21:9', label: '超宽屏', resolution: '1536x672' },
+  { value: '1:1', label: '1:1 正方形', resolution: '1024x1024' },
+  { value: '2:3', label: '2:3 竖向', resolution: '832x1248' },
+  { value: '3:2', label: '3:2 横向', resolution: '1248x832' },
+  { value: '3:4', label: '3:4 竖向', resolution: '864x1184' },
+  { value: '4:3', label: '4:3 横向', resolution: '1184x864' },
+  { value: '4:5', label: '4:5 竖向', resolution: '896x1152' },
+  { value: '5:4', label: '5:4 横向', resolution: '1152x896' },
+  { value: '9:16', label: '9:16 竖屏', resolution: '768x1344' },
+  { value: '16:9', label: '16:9 宽屏', resolution: '1344x768' },
+  { value: '21:9', label: '21:9 超宽屏', resolution: '1536x672' },
 ];
 
 const BANANA_PRO_ASPECT_RATIOS: { value: AspectRatio; label: string; resolutions: Record<FixedOutputSize, string> }[] = [
-  { value: '1:1', label: '正方形', resolutions: { '512': '', '1K': '1024x1024', '2K': '2048x2048', '4K': '4096x4096' } },
-  { value: '2:3', label: '竖向', resolutions: { '512': '', '1K': '848x1264', '2K': '1696x2528', '4K': '3392x5056' } },
-  { value: '3:2', label: '横向', resolutions: { '512': '', '1K': '1264x848', '2K': '2528x1696', '4K': '5056x3392' } },
-  { value: '3:4', label: '竖向', resolutions: { '512': '', '1K': '896x1200', '2K': '1792x2400', '4K': '3584x4800' } },
-  { value: '4:3', label: '横向', resolutions: { '512': '', '1K': '1200x896', '2K': '2400x1792', '4K': '4800x3584' } },
-  { value: '4:5', label: '竖向', resolutions: { '512': '', '1K': '928x1152', '2K': '1856x2304', '4K': '3712x4608' } },
-  { value: '5:4', label: '横向', resolutions: { '512': '', '1K': '1152x928', '2K': '2304x1856', '4K': '4608x3712' } },
-  { value: '9:16', label: '竖屏', resolutions: { '512': '', '1K': '768x1376', '2K': '1536x2752', '4K': '3072x5504' } },
-  { value: '16:9', label: '宽屏', resolutions: { '512': '', '1K': '1376x768', '2K': '2752x1536', '4K': '5504x3072' } },
-  { value: '21:9', label: '超宽屏', resolutions: { '512': '', '1K': '1584x672', '2K': '3168x1344', '4K': '6336x2688' } },
+  { value: '1:1', label: '1:1 正方形', resolutions: { '512': '', '1K': '1024x1024', '2K': '2048x2048', '4K': '4096x4096' } },
+  { value: '2:3', label: '2:3 竖向', resolutions: { '512': '', '1K': '848x1264', '2K': '1696x2528', '4K': '3392x5056' } },
+  { value: '3:2', label: '3:2 横向', resolutions: { '512': '', '1K': '1264x848', '2K': '2528x1696', '4K': '5056x3392' } },
+  { value: '3:4', label: '3:4 竖向', resolutions: { '512': '', '1K': '896x1200', '2K': '1792x2400', '4K': '3584x4800' } },
+  { value: '4:3', label: '4:3 横向', resolutions: { '512': '', '1K': '1200x896', '2K': '2400x1792', '4K': '4800x3584' } },
+  { value: '4:5', label: '4:5 竖向', resolutions: { '512': '', '1K': '928x1152', '2K': '1856x2304', '4K': '3712x4608' } },
+  { value: '5:4', label: '5:4 横向', resolutions: { '512': '', '1K': '1152x928', '2K': '2304x1856', '4K': '4608x3712' } },
+  { value: '9:16', label: '9:16 竖屏', resolutions: { '512': '', '1K': '768x1376', '2K': '1536x2752', '4K': '3072x5504' } },
+  { value: '16:9', label: '16:9 宽屏', resolutions: { '512': '', '1K': '1376x768', '2K': '2752x1536', '4K': '5504x3072' } },
+  { value: '21:9', label: '21:9 超宽屏', resolutions: { '512': '', '1K': '1584x672', '2K': '3168x1344', '4K': '6336x2688' } },
 ];
 
 const GPT_IMAGE_ASPECT_RATIOS: { value: AspectRatio; label: string }[] = [
-  { value: '1:1', label: '正方形' },
-  { value: '3:2', label: '横向' },
-  { value: '2:3', label: '竖向' },
-  { value: '16:9', label: '宽屏' },
-  { value: '9:16', label: '竖屏' },
-  { value: '4:3', label: '横向' },
-  { value: '3:4', label: '竖向' },
-  { value: '21:9', label: '超宽屏' },
+  { value: '1:1', label: '1:1 正方形' },
+  { value: '3:2', label: '3:2 横向' },
+  { value: '2:3', label: '2:3 竖向' },
+  { value: '16:9', label: '16:9 宽屏' },
+  { value: '9:16', label: '9:16 竖屏' },
+  { value: '4:3', label: '4:3 横向' },
+  { value: '3:4', label: '3:4 竖向' },
+  { value: '21:9', label: '21:9 超宽屏' },
 ];
 
 export const CUSTOM_IMAGE_SIZE_LIMITS = {
@@ -100,20 +100,20 @@ export const CUSTOM_IMAGE_SIZE_LIMITS = {
 } as const;
 
 const BANANA2_ASPECT_RATIOS: { value: AspectRatio; label: string; resolutions: Record<FixedOutputSize, string> }[] = [
-  { value: '1:1', label: '正方形', resolutions: { '512': '512x512', '1K': '1024x1024', '2K': '2048x2048', '4K': '4096x4096' } },
-  { value: '1:4', label: '竖向', resolutions: { '512': '256x1024', '1K': '512x2048', '2K': '1024x4096', '4K': '2048x8192' } },
-  { value: '1:8', label: '竖向', resolutions: { '512': '192x1536', '1K': '384x3072', '2K': '768x6144', '4K': '1536x12288' } },
-  { value: '2:3', label: '竖向', resolutions: { '512': '424x632', '1K': '848x1264', '2K': '1696x2528', '4K': '3392x5056' } },
-  { value: '3:2', label: '横向', resolutions: { '512': '632x424', '1K': '1264x848', '2K': '2528x1696', '4K': '5056x3392' } },
-  { value: '3:4', label: '竖向', resolutions: { '512': '448x600', '1K': '896x1200', '2K': '1792x2400', '4K': '3584x4800' } },
-  { value: '4:1', label: '横向', resolutions: { '512': '1024x256', '1K': '2048x512', '2K': '4096x1024', '4K': '8192x2048' } },
-  { value: '4:3', label: '横向', resolutions: { '512': '600x448', '1K': '1200x896', '2K': '2400x1792', '4K': '4800x3584' } },
-  { value: '4:5', label: '竖向', resolutions: { '512': '464x576', '1K': '928x1152', '2K': '1856x2304', '4K': '3712x4608' } },
-  { value: '5:4', label: '横向', resolutions: { '512': '576x464', '1K': '1152x928', '2K': '2304x1856', '4K': '4608x3712' } },
-  { value: '8:1', label: '横向', resolutions: { '512': '1536x192', '1K': '3072x384', '2K': '6144x768', '4K': '12288x1536' } },
-  { value: '9:16', label: '竖屏', resolutions: { '512': '384x688', '1K': '768x1376', '2K': '1536x2752', '4K': '3072x5504' } },
-  { value: '16:9', label: '宽屏', resolutions: { '512': '688x384', '1K': '1376x768', '2K': '2752x1536', '4K': '5504x3072' } },
-  { value: '21:9', label: '超宽屏', resolutions: { '512': '792x168', '1K': '1584x672', '2K': '3168x1344', '4K': '6336x2688' } },
+  { value: '1:1', label: '1:1 正方形', resolutions: { '512': '512x512', '1K': '1024x1024', '2K': '2048x2048', '4K': '4096x4096' } },
+  { value: '1:4', label: '1:4 竖向', resolutions: { '512': '256x1024', '1K': '512x2048', '2K': '1024x4096', '4K': '2048x8192' } },
+  { value: '1:8', label: '1:8 竖向', resolutions: { '512': '192x1536', '1K': '384x3072', '2K': '768x6144', '4K': '1536x12288' } },
+  { value: '2:3', label: '2:3 竖向', resolutions: { '512': '424x632', '1K': '848x1264', '2K': '1696x2528', '4K': '3392x5056' } },
+  { value: '3:2', label: '3:2 横向', resolutions: { '512': '632x424', '1K': '1264x848', '2K': '2528x1696', '4K': '5056x3392' } },
+  { value: '3:4', label: '3:4 竖向', resolutions: { '512': '448x600', '1K': '896x1200', '2K': '1792x2400', '4K': '3584x4800' } },
+  { value: '4:1', label: '4:1 横向', resolutions: { '512': '1024x256', '1K': '2048x512', '2K': '4096x1024', '4K': '8192x2048' } },
+  { value: '4:3', label: '4:3 横向', resolutions: { '512': '600x448', '1K': '1200x896', '2K': '2400x1792', '4K': '4800x3584' } },
+  { value: '4:5', label: '4:5 竖向', resolutions: { '512': '464x576', '1K': '928x1152', '2K': '1856x2304', '4K': '3712x4608' } },
+  { value: '5:4', label: '5:4 横向', resolutions: { '512': '576x464', '1K': '1152x928', '2K': '2304x1856', '4K': '4608x3712' } },
+  { value: '8:1', label: '8:1 横向', resolutions: { '512': '1536x192', '1K': '3072x384', '2K': '6144x768', '4K': '12288x1536' } },
+  { value: '9:16', label: '9:16 竖屏', resolutions: { '512': '384x688', '1K': '768x1376', '2K': '1536x2752', '4K': '3072x5504' } },
+  { value: '16:9', label: '16:9 宽屏', resolutions: { '512': '688x384', '1K': '1376x768', '2K': '2752x1536', '4K': '5504x3072' } },
+  { value: '21:9', label: '21:9 超宽屏', resolutions: { '512': '792x168', '1K': '1584x672', '2K': '3168x1344', '4K': '6336x2688' } },
 ];
 
 export interface AspectRatioOption {
@@ -284,22 +284,20 @@ export function getSizeOptions(model: ModelId): { value: OutputSize; label: stri
     return values.map((value) => ({ value, label: value === '512' ? '0.5K' : value }));
   }
 
-  const presetId = getBuiltinPresetId(model);
-  if (presetId === 'gemini-3.1-flash-image-preview') {
-    return [
-      { value: '512', label: '0.5K' },
-      { value: '1K', label: '1K' },
-      { value: '2K', label: '2K' },
-      { value: '4K', label: '4K' },
-    ];
+  // Fallback: 从 BUILTIN_IMAGE_PRESETS 直接读取（不依赖 registry）
+  const presetId = getBuiltinPresetId(model) || model;
+  const preset = BUILTIN_IMAGE_PRESETS[presetId as BuiltinImagePresetId];
+  if (preset) {
+    const values: OutputSize[] = preset.maxOutputSize === '4K'
+      ? (preset.id === 'gemini-3.1-flash-image-preview' ? ['512', '1K', '2K', '4K'] : ['1K', '2K', '4K'])
+      : preset.maxOutputSize === '2K'
+        ? (preset.id === 'gemini-3.1-flash-image-preview' ? ['512', '1K', '2K'] : ['1K', '2K'])
+        : preset.maxOutputSize === '512'
+          ? ['512']
+          : (preset.id === 'gemini-3.1-flash-image-preview' ? ['512', '1K'] : ['1K']);
+    return values.map((value) => ({ value, label: value === '512' ? '0.5K' : value }));
   }
-  if (presetId === 'gemini-3-pro-image-preview' || presetId === 'gpt-image-2') {
-    return [
-      { value: '1K', label: '1K' },
-      { value: '2K', label: '2K' },
-      { value: '4K', label: '4K' },
-    ];
-  }
+
   return [{ value: '1K', label: '1K' }];
 }
 

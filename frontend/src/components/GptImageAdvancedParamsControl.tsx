@@ -1,11 +1,11 @@
 'use client';
 
-import { Check, SlidersHorizontal } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import {
-  DEFAULT_GPT_IMAGE_ADVANCED_PARAMS,
   GPT_IMAGE_BACKGROUND_OPTIONS,
   GPT_IMAGE_QUALITY_OPTIONS,
   GPT_IMAGE_STYLE_OPTIONS,
@@ -19,80 +19,77 @@ interface GptImageAdvancedParamsControlProps {
   value: GptImageAdvancedParams;
   onChange: (value: GptImageAdvancedParams) => void;
   disabled?: boolean;
-  variant?: 'ghost' | 'outline';
-  size?: 'xs' | 'sm';
-}
-
-function isDefaultValue(value: GptImageAdvancedParams): boolean {
-  return (
-    value.quality === DEFAULT_GPT_IMAGE_ADVANCED_PARAMS.quality &&
-    value.style === DEFAULT_GPT_IMAGE_ADVANCED_PARAMS.style &&
-    value.background === DEFAULT_GPT_IMAGE_ADVANCED_PARAMS.background
-  );
-}
-
-function formatLabel(value: GptImageAdvancedParams): string {
-  if (isDefaultValue(value)) return '图像参数';
-  const quality = GPT_IMAGE_QUALITY_OPTIONS.find(option => option.value === value.quality)?.label || value.quality;
-  const style = GPT_IMAGE_STYLE_OPTIONS.find(option => option.value === value.style)?.label || value.style;
-  const background = GPT_IMAGE_BACKGROUND_OPTIONS.find(option => option.value === value.background)?.label || value.background;
-  return `${quality}/${style}/${background}`;
+  /**
+   * 展示形态:
+   * - `inline`(默认):整宽按钮 + 就地展开,适合纵向参数面板。
+   * - `chip`:紧凑 outline 小药丸 + Popover,和参数条里其他控件(模型/尺寸/比例等)统一。
+   */
+  variant?: 'inline' | 'chip';
 }
 
 export function GptImageAdvancedParamsControl({
   value,
   onChange,
   disabled = false,
-  variant = 'ghost',
-  size = 'xs',
+  variant = 'inline',
 }: GptImageAdvancedParamsControlProps) {
-  const triggerClass = cn(
-    buttonVariants({ variant, size }),
-    'gap-1',
-  );
+  const [expanded, setExpanded] = useState(false);
 
   const updateQuality = (quality: GptImageQuality) => onChange({ ...value, quality });
   const updateStyle = (style: GptImageStyle) => onChange({ ...value, style });
   const updateBackground = (background: GptImageBackground) => onChange({ ...value, background });
 
+  const groups = (
+    <>
+      <ParamGroup label="质量" options={GPT_IMAGE_QUALITY_OPTIONS} value={value.quality} onSelect={updateQuality} />
+      <ParamGroup label="风格" options={GPT_IMAGE_STYLE_OPTIONS} value={value.style} onSelect={updateStyle} />
+      <ParamGroup label="背景" options={GPT_IMAGE_BACKGROUND_OPTIONS} value={value.background} onSelect={updateBackground} />
+    </>
+  );
+
+  if (variant === 'chip') {
+    return (
+      <Popover open={expanded} onOpenChange={setExpanded}>
+        <PopoverTrigger
+          disabled={disabled}
+          className={cn(buttonVariants({ variant: 'outline', size: 'xs' }), 'gap-1')}
+          title="高级设置(质量 / 风格 / 背景)"
+        >
+          <SlidersHorizontal className="h-3 w-3" />
+          <span className="text-[11px]">高级</span>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 space-y-2.5" align="start">
+          {groups}
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
   return (
-    <Popover>
-      <PopoverTrigger className={triggerClass} disabled={disabled} title="图像参数">
-        <SlidersHorizontal className="h-3 w-3" />
-        <span className="shrink-0 truncate text-[11px]">{formatLabel(value)}</span>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-2" align="start">
-        <div className="space-y-3">
-          <ParamGroup
-            label="质量"
-            options={GPT_IMAGE_QUALITY_OPTIONS}
-            value={value.quality}
-            onSelect={updateQuality}
-          />
-          <ParamGroup
-            label="风格"
-            options={GPT_IMAGE_STYLE_OPTIONS}
-            value={value.style}
-            onSelect={updateStyle}
-          />
-          <ParamGroup
-            label="背景"
-            options={GPT_IMAGE_BACKGROUND_OPTIONS}
-            value={value.background}
-            onSelect={updateBackground}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            className="w-full"
-            onClick={() => onChange(DEFAULT_GPT_IMAGE_ADVANCED_PARAMS)}
-          >
-            重置为自动
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+    <div className="space-y-2.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setExpanded(!expanded)}
+        disabled={disabled}
+        className="w-full text-xs text-muted-foreground hover:text-foreground"
+      >
+        {expanded ? (
+          <>
+            <ChevronUp className="mr-1 h-3 w-3" />
+            收起高级设置
+          </>
+        ) : (
+          <>
+            <ChevronDown className="mr-1 h-3 w-3" />
+            高级设置
+          </>
+        )}
+      </Button>
+
+      {expanded && groups}
+    </div>
   );
 }
 
@@ -105,22 +102,29 @@ interface ParamGroupProps<T extends string> {
 
 function ParamGroup<T extends string>({ label, options, value, onSelect }: ParamGroupProps<T>) {
   return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
-      <div className="grid grid-cols-2 gap-1">
+    <div className="space-y-2.5">
+      <label className="text-xs font-semibold text-foreground">{label}</label>
+      <div className="flex flex-wrap gap-2">
         {options.map(option => (
-          <button
+          <label
             key={option.value}
-            type="button"
-            onClick={() => onSelect(option.value)}
             className={cn(
-              'flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-muted',
-              option.value === value && 'bg-muted font-medium',
+              'cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-medium transition-all',
+              option.value === value
+                ? 'border-primary bg-primary text-primary-foreground shadow-md'
+                : 'border-border/50 bg-background/80 hover:border-primary/60 hover:bg-muted hover:shadow-sm'
             )}
           >
-            <span>{option.label}</span>
-            {option.value === value && <Check className="h-3.5 w-3.5" />}
-          </button>
+            <input
+              type="radio"
+              name={`param-${label}`}
+              value={option.value}
+              checked={option.value === value}
+              onChange={() => onSelect(option.value)}
+              className="sr-only"
+            />
+            {option.label}
+          </label>
         ))}
       </div>
     </div>

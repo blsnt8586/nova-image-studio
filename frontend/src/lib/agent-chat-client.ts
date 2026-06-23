@@ -11,12 +11,13 @@ import {
   type AgentProposal,
   type AgentActionType,
 } from '@/lib/agent-chat-config';
-import { buildResponsesApiUrl } from '@/lib/model-endpoints';
+import { buildResponsesApiUrl, buildTextAuthHeaders } from '@/lib/model-endpoints';
 import {
   normalizeGptImageBackground,
   normalizeGptImageQuality,
   normalizeGptImageStyle,
 } from '@/lib/model-capabilities';
+import type { ImageModelSource } from '@/lib/nova-models';
 
 import { readSseStream } from '@/lib/sse-stream-parser';
 
@@ -45,6 +46,9 @@ export interface StreamAgentInput {
   catalog: AgentCatalogEntry[];
   /** 是否启用联网搜索工具 */
   webSearch?: boolean;
+  /** sub2api 模型携带,用于让后端换成对应 sk- key。 */
+  source?: ImageModelSource;
+  keyId?: string;
 }
 
 export interface StreamAgentCallbacks {
@@ -227,7 +231,7 @@ async function runAgentStream(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${input.apiKey}`,
+      ...buildTextAuthHeaders({ apiKey: input.apiKey, protocol: 'openai', source: input.source, keyId: input.keyId }),
       Accept: 'text/event-stream',
     },
     body: JSON.stringify(body),
@@ -354,9 +358,10 @@ export async function describeImage(
   imageDataUrl: string,
   signal?: AbortSignal,
   baseUrl: string = '',
+  auth?: { source?: ImageModelSource; keyId?: string },
 ): Promise<string> {
   return runAgentRequestWithRetry(
-    attemptSignal => requestImageDescription(baseUrl, apiKey, model, imageDataUrl, attemptSignal),
+    attemptSignal => requestImageDescription(baseUrl, apiKey, model, imageDataUrl, attemptSignal, auth),
     signal,
     AGENT_IMAGE_DESCRIBE_ATTEMPT_TIMEOUT_MS,
   );
@@ -368,6 +373,7 @@ async function requestImageDescription(
   model: string,
   imageDataUrl: string,
   signal: AbortSignal,
+  auth?: { source?: ImageModelSource; keyId?: string },
 ): Promise<string> {
   const body = {
     model: model || AGENT_TEXT_MODEL_FALLBACK,
@@ -388,7 +394,7 @@ async function requestImageDescription(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      ...buildTextAuthHeaders({ apiKey, protocol: 'openai', source: auth?.source, keyId: auth?.keyId }),
     },
     body: JSON.stringify(body),
     signal,

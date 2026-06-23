@@ -33,7 +33,6 @@ const LOCAL_STORAGE_KEYS = [
     'nova-i2i-settings',
     'nova-reverse-prompt-settings',
     'theme',
-    'nova-wide-mode',
     // Agent 模式
     'nova-agent-params',
     'nova-agent-web-search',

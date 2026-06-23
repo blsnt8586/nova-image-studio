@@ -9,8 +9,9 @@ import {
   type ReversePromptMode,
   type ReversePromptModelId,
 } from '@/lib/reverse-prompt-config';
-import { buildGeminiStreamGenerateContentUrl, buildResponsesApiUrl, getConfiguredTextModel } from '@/lib/model-endpoints';
+import { buildGeminiStreamGenerateContentUrl, buildResponsesApiUrl, buildTextAuthHeaders, getConfiguredTextModel } from '@/lib/model-endpoints';
 import { readSseStream } from '@/lib/sse-stream-parser';
+import type { ImageModelSource } from '@/lib/nova-models';
 
 export interface StreamReverseInput {
   apiKey: string;
@@ -18,6 +19,9 @@ export interface StreamReverseInput {
   mode: ReversePromptMode;
   imageDataUrl: string;
   mimeType: string;
+  /** sub2api 模型携带,用于让后端换成对应 sk- key。 */
+  source?: ImageModelSource;
+  keyId?: string;
 }
 
 export interface StreamReverseCallbacks {
@@ -49,10 +53,11 @@ export function streamReversePrompt(
       const protocol = configuredModel?.protocol;
       const resolvedBaseUrl = configuredModel?.baseUrl || baseUrl;
       const resolvedModelId = configuredModel?.modelId || input.model;
+      const enriched = { ...input, source: configuredModel?.source, keyId: configuredModel?.keyId };
       if (protocol === 'openai') {
-        await streamOpenAiResponses(resolvedBaseUrl, { ...input, model: resolvedModelId }, callbacks, controller.signal);
+        await streamOpenAiResponses(resolvedBaseUrl, { ...enriched, model: resolvedModelId }, callbacks, controller.signal);
       } else if (protocol === 'google') {
-        await streamGeminiGenerateContent(resolvedBaseUrl, { ...input, model: resolvedModelId }, callbacks, controller.signal);
+        await streamGeminiGenerateContent(resolvedBaseUrl, { ...enriched, model: resolvedModelId }, callbacks, controller.signal);
       } else {
         throw new Error(`暂不支持的反推模型协议: ${String(protocol || 'unknown')}`);
       }
@@ -104,7 +109,7 @@ async function streamOpenAiResponses(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${input.apiKey}`,
+      ...buildTextAuthHeaders({ apiKey: input.apiKey, protocol: 'openai', source: input.source, keyId: input.keyId }),
       Accept: 'text/event-stream',
     },
     body: JSON.stringify(body),
@@ -235,8 +240,7 @@ async function streamGeminiGenerateContent(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${input.apiKey}`,
-      'x-goog-api-key': input.apiKey,
+      ...buildTextAuthHeaders({ apiKey: input.apiKey, protocol: 'google', source: input.source, keyId: input.keyId }),
       Accept: 'text/event-stream',
     },
     body: JSON.stringify(body),

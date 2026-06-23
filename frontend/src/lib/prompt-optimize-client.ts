@@ -3,6 +3,8 @@
 // 图生图/动图模式会将参考图作为 input_image 一并发送（单次请求完成）。
 
 import { readSseStream } from '@/lib/sse-stream-parser';
+import { buildTextAuthHeaders } from '@/lib/model-endpoints';
+import type { ImageModelSource } from '@/lib/nova-models';
 
 const OPTIMIZE_MODEL = 'gpt-5.4-mini';
 const OPTIMIZE_TIMEOUT_MS = 30_000;
@@ -24,6 +26,9 @@ export interface StreamPromptOptimizeInput {
   images?: OptimizeImageInput[];
   /** 仅 agent 模式使用的对话上下文参考 */
   context?: string;
+  /** sub2api 模型携带,用于让后端换成对应 sk- key。 */
+  source?: ImageModelSource;
+  keyId?: string;
 }
 
 export interface StreamPromptOptimizeCallbacks {
@@ -234,7 +239,7 @@ async function runAttempt(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${input.apiKey}`,
+        ...buildTextAuthHeaders({ apiKey: input.apiKey, protocol: 'openai', source: input.source, keyId: input.keyId }),
         Accept: 'text/event-stream',
       },
       body: JSON.stringify(body),

@@ -64,6 +64,14 @@ export const PROMPT_DATA_SOURCES: PromptDataSource[] = [
     baseUrl: 'https://proxy.ccode.vip/https/raw.githubusercontent.com/davidwuw0811-boop/awesome-gpt-image2-prompts/main',
     type: 'davidwu-json',
   },
+  {
+    name: 'xianyu-gptimage2',
+    url: 'https://proxy.ccode.vip/https/raw.githubusercontent.com/xianyu110/awesome-gptimage2/main/README.md',
+    sourceUrl: 'https://github.com/xianyu110/awesome-gptimage2',
+    baseUrl: 'https://proxy.ccode.vip/https/raw.githubusercontent.com/xianyu110/awesome-gptimage2/main',
+    type: 'markdown-xianyu',
+    modelTag: 'gpt-image-2',
+  },
 ];
 
 export const DEFAULT_CATEGORIES = ['全部', '海报', '角色', '电商', 'UI', '风格转换', 'gpt-image-2', 'gpt4o', '其他'];
@@ -287,6 +295,87 @@ async function parseMarkdownGpt4o(source: PromptDataSource): Promise<PromptWithK
   return prompts;
 }
 
+/** 截取某个 `## 标题` 区块的正文（到下一个 `## ` 之前），找不到返回空串 */
+function extractH2Section(markdown: string, headingText: string): string {
+  const lines = markdown.split('\n');
+  const result: string[] = [];
+  let capturing = false;
+  for (const line of lines) {
+    const isH2 = /^##\s+/.test(line) && !/^###/.test(line);
+    if (isH2) {
+      if (capturing) break; // 已采集完该区块，遇到下一个 ## 停止
+      const text = line.replace(/^##\s+/, '').trim();
+      if (text === headingText) {
+        capturing = true;
+        continue;
+      }
+    }
+    if (capturing) result.push(line);
+  }
+  return result.join('\n');
+}
+
+/** 去掉中文/数字序号前缀，如 "一、电商与产品" -> "电商与产品"，"1.1 香水" -> "香水" */
+function stripHeadingOrdinal(heading: string): string {
+  return heading
+    .replace(/^[一二三四五六七八九十百零]+、\s*/, '')
+    .replace(/^\d+(?:\.\d+)*[.、\s]+\s*/, '')
+    .trim();
+}
+
+/**
+ * xianyu110/awesome-gptimage2 README 解析。
+ * 结构：## 提示词合集 → ### 一、大类 → #### 1.1 条目标题 + ```code``` 正文 + ![](img)。
+ * 纯函数，便于单测；只采集「提示词合集」区块内的条目。
+ */
+export function parseXianyuMarkdown(markdown: string, source: PromptDataSource): PromptWithKey[] {
+  const section = extractH2Section(markdown, '提示词合集');
+  if (!section) return [];
+  const baseURL = source.baseUrl || '';
+  const modelTag = source.modelTag || '';
+  const prompts: PromptWithKey[] = [];
+
+  let currentCategory = '';
+  const categoryBlocks = splitBeforeHeading(section, '### ');
+  for (const categoryBlock of categoryBlocks) {
+    const rawCategory = firstMatch(categoryBlock, /^###\s+(.+)$/m);
+    if (rawCategory) currentCategory = stripHeadingOrdinal(rawCategory);
+
+    const itemBlocks = splitBeforeHeading(categoryBlock, '#### ');
+    for (const block of itemBlocks) {
+      const rawTitle = firstMatch(block, /^####\s+(.+)$/m);
+      if (!rawTitle) continue;
+      const title = stripHeadingOrdinal(rawTitle.replace(/\[([^\]]+)]\([^)]+\)/g, '$1'));
+      const prompt = firstMatch(block, /```[\w-]*\r?\n([\s\S]*?)\r?\n```/);
+      if (!title || !prompt) continue;
+
+      const tags = [currentCategory, modelTag].filter(Boolean);
+      const idx = prompts.length;
+      prompts.push({
+        id: `${source.name}-${idx}`,
+        title,
+        content: prompt.trim(),
+        images: extractMarkdownImages(baseURL, block),
+        tags,
+        contributor: '',
+        notes: '',
+        source: source.name,
+        sourceUrl: source.sourceUrl,
+        category: inferCategory(title, prompt, tags),
+        uniqueKey: `${source.name}-${idx}`,
+      });
+    }
+  }
+  return prompts;
+}
+
+async function parseMarkdownXianyu(source: PromptDataSource): Promise<PromptWithKey[]> {
+  const res = await fetch(source.url);
+  if (!res.ok) return [];
+  const markdown = await res.text();
+  return parseXianyuMarkdown(markdown, source);
+}
+
 async function parseMarkdownYouMind(source: PromptDataSource): Promise<PromptWithKey[]> {
   const res = await fetch(source.url);
   if (!res.ok) return [];
@@ -387,6 +476,8 @@ function fetchSource(source: PromptDataSource): Promise<PromptWithKey[]> {
       return parseMarkdownGpt4o(source);
     case 'markdown-youmind':
       return parseMarkdownYouMind(source);
+    case 'markdown-xianyu':
+      return parseMarkdownXianyu(source);
     case 'davidwu-json':
       return parseDavidWuJson(source);
     default:

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { runImageAction, dispatchImageActionToast, type ImageActionPayload } from '@/lib/image-actions';
+import { copyText } from '@/lib/clipboard';
 import { addTextAsset } from '@/lib/asset-store';
 import type { PromptGalleryItem } from '@/lib/prompt-gallery-types';
 
@@ -82,9 +83,12 @@ export const PromptCard = memo(function PromptCard({
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(prompt.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void copyText(prompt.content).then(ok => {
+      if (ok) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    });
   };
 
   const nextImage = (e: React.MouseEvent) => {
@@ -283,9 +287,12 @@ export function PromptDetailModal({
   }, []);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(prompt.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void copyText(prompt.content).then(ok => {
+      if (ok) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    });
   };
 
   const handleSaveToAssets = async () => {

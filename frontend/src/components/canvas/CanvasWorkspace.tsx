@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, FolderOpen, Frame, Layers, PanelLeftOpen, Plus, Trash2, Upload } from "lucide-react";
+import { Download, FolderOpen, Frame, Layers, Plus, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,7 +16,6 @@ import { exportCanvasProjects, importCanvasProjectsFromZip } from "./utils/canva
 type CanvasWorkspaceProps = {
   wideMode?: boolean;
   onConfigureApiKey: () => void;
-  onEnableWideMode: () => void;
   showToast: (message: string, type: "success" | "error" | "info") => void;
 };
 
@@ -28,7 +27,7 @@ const SORT_OPTIONS: { value: SortMode; label: string }[] = [
   { value: "name", label: "名称" },
 ];
 
-export function CanvasWorkspace({ wideMode, onConfigureApiKey, onEnableWideMode, showToast }: CanvasWorkspaceProps) {
+export function CanvasWorkspace({ wideMode, onConfigureApiKey, showToast }: CanvasWorkspaceProps) {
   const hydrated = useCanvasStore((state) => state.hydrated);
   const projects = useCanvasStore((state) => state.projects);
   const createProject = useCanvasStore((state) => state.createProject);
@@ -57,18 +56,14 @@ export function CanvasWorkspace({ wideMode, onConfigureApiKey, onEnableWideMode,
     return list;
   }, [projects, sortMode]);
 
-  // 画布仅在宽屏模式下可用（按宽度模式判断，非检测设备），以降低适配成本。
+  // 画布仅在宽屏布局下可用（按视口宽度判断），以降低适配成本。
   if (!wideMode) {
     return (
       <div className="grid place-items-center rounded-2xl border border-dashed border-border py-20">
         <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
           <Frame className="size-10 text-muted-foreground" />
-          <h2 className="text-base font-semibold">无限画布需要宽屏模式</h2>
-          <p className="text-sm text-muted-foreground">请使用电脑，或切换到宽屏模式（窗口宽度需 ≥ 1280px）。</p>
-          <Button size="sm" onClick={onEnableWideMode}>
-            <PanelLeftOpen className="size-4" />
-            切换宽屏模式
-          </Button>
+          <h2 className="text-base font-semibold">无限画布需要宽屏</h2>
+          <p className="text-sm text-muted-foreground">请使用电脑，或将窗口宽度调整到 ≥ 1280px。</p>
         </div>
       </div>
     );

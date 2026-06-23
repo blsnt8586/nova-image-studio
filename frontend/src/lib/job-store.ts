@@ -50,6 +50,8 @@ export interface StoredJob {
   originalPrompt?: string;
   blobUrls?: string[];
   imageDownloadProgress?: ImageDownloadProgress;
+  /** 该 job 对应的云端 generations 记录 id(仅由跨设备取回合并的远端历史设置,用于去重)。 */
+  remoteGenerationId?: string;
 }
 
 const JOBS_KEY = 'nova-jobs';

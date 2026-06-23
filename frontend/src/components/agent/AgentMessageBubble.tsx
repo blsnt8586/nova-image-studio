@@ -21,6 +21,7 @@ import { AgentGenerationResult } from '@/components/agent/AgentGenerationResult'
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { cn, clampIndex } from '@/lib/utils';
+import { copyText } from '@/lib/clipboard';
 import { renderReasoning, renderMarkdown } from '@/lib/render-reasoning';
 import { handleMarkdownCodeCopyButtonClick } from '@/lib/markdown-code-copy';
 import { getAgentImageBytes } from '@/lib/agent-context-store';
@@ -373,9 +374,12 @@ export function AgentMessageBubble({
                 size="sm"
                 className="gap-1"
                 onClick={() => {
-                  navigator.clipboard.writeText(descDialogImg.description).catch(() => {});
-                  setDescCopied(true);
-                  setTimeout(() => setDescCopied(false), 2000);
+                  void copyText(descDialogImg.description).then(ok => {
+                    if (ok) {
+                      setDescCopied(true);
+                      setTimeout(() => setDescCopied(false), 2000);
+                    }
+                  });
                 }}
               >
                 {descCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}

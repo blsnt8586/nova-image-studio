@@ -1,35 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-
-export const WIDE_MODE_STORAGE_KEY = 'nova-wide-mode';
+import { useEffect, useState } from 'react';
 
 // 宽屏（侧栏）布局基于 xl 断点设计。视口窄于该宽度时，侧栏会与顶部 Header 重复、
-// 纵向 Tab 布局错位，因此宽屏必须自动关闭；重新变宽不会自动开启。
+// 纵向 Tab 布局错位，因此窄视口下必须自动关闭宽屏；变宽后自动恢复。
 export const WIDE_MODE_MIN_WIDTH = 1280;
-
-type StoredWideMode = 'enabled' | 'disabled';
-
-function readStoredWideMode(): boolean {
-  if (typeof window === 'undefined') return false;
-
-  try {
-    return localStorage.getItem(WIDE_MODE_STORAGE_KEY) === 'enabled';
-  } catch {
-    return false;
-  }
-}
-
-function writeStoredWideMode(enabled: boolean): void {
-  if (typeof window === 'undefined') return;
-
-  try {
-    const value: StoredWideMode = enabled ? 'enabled' : 'disabled';
-    localStorage.setItem(WIDE_MODE_STORAGE_KEY, value);
-  } catch {
-    // Storage can be unavailable in hardened/private browser modes.
-  }
-}
 
 function viewportAllowsWide(): boolean {
   if (typeof window === 'undefined') return true;
@@ -63,13 +38,8 @@ export function useWideMode() {
 
     queueMicrotask(() => {
       if (cancelled) return;
-      const stored = readStoredWideMode();
-      const allowed = viewportAllowsWide();
-      setWideModeState(stored && allowed);
-      if (stored && !allowed) {
-        // 在窄视口下加载时同样自动关闭，避免出现重复 Header 的坏状态。
-        writeStoredWideMode(false);
-      }
+      // 宽屏现为默认布局，只要视口够宽即开启，无需用户偏好。
+      setWideModeState(viewportAllowsWide());
       setMounted(true);
       dismissBootLoader();
     });
@@ -79,23 +49,18 @@ export function useWideMode() {
     };
   }, []);
 
-  // 视口收窄到阈值以下时自动关闭宽屏；只做单向关闭，绝不自动开启。
+  // 视口宽度跨越阈值时双向同步：变窄自动关闭以避免重复 Header 的坏状态，变宽自动恢复。
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const mql = window.matchMedia(`(max-width: ${WIDE_MODE_MIN_WIDTH - 1}px)`);
+    const mql = window.matchMedia(`(min-width: ${WIDE_MODE_MIN_WIDTH}px)`);
 
-    const enforce = (isNarrow: boolean) => {
-      if (!isNarrow) return;
-      setWideModeState(current => {
-        if (!current) return current;
-        writeStoredWideMode(false);
-        return false;
-      });
+    const apply = (isWide: boolean) => {
+      setWideModeState(current => (current === isWide ? current : isWide));
     };
 
-    enforce(mql.matches);
-    const listener = (event: MediaQueryListEvent) => enforce(event.matches);
+    apply(mql.matches);
+    const listener = (event: MediaQueryListEvent) => apply(event.matches);
     mql.addEventListener('change', listener);
 
     return () => mql.removeEventListener('change', listener);
@@ -106,25 +71,8 @@ export function useWideMode() {
     syncHtmlAttribute(wideMode);
   }, [wideMode]);
 
-  const setWideMode = useCallback((enabled: boolean) => {
-    if (enabled && !viewportAllowsWide()) return;
-    setWideModeState(enabled);
-    writeStoredWideMode(enabled);
-  }, []);
-
-  const toggleWideMode = useCallback(() => {
-    setWideModeState(current => {
-      const next = !current;
-      if (next && !viewportAllowsWide()) return current;
-      writeStoredWideMode(next);
-      return next;
-    });
-  }, []);
-
   return {
     wideMode,
     mounted,
-    setWideMode,
-    toggleWideMode,
   };
 }

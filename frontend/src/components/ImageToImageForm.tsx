@@ -164,7 +164,7 @@ export function ImageToImageForm({
 
     const images = pendingFiles.map(f => ({ dataUrl: f.dataUrl, mimeType: f.mimeType }));
     const handle = streamPromptOptimize(
-      { apiKey: textModel.apiKey, mode: 'image-to-image', prompt: prompt.trim(), images },
+      { apiKey: textModel.apiKey, mode: 'image-to-image', prompt: prompt.trim(), images, source: textModel.source, keyId: textModel.keyId },
       {
         onDelta(token) { setOptimizedText(prev => prev + token); },
         onDone() { setOptimizing(false); },
@@ -855,8 +855,7 @@ export function ImageToImageForm({
             <GptImageAdvancedParamsControl
               value={gptImageAdvancedParams}
               onChange={setGptImageAdvancedParams}
-              variant="outline"
-              size="xs"
+              variant="inline"
             />
           )}
 

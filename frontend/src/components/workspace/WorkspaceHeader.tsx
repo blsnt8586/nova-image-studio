@@ -5,7 +5,6 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, use
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { WideModeToggle } from '@/components/WideModeToggle';
 import type { NovaQueueStatus } from '@/lib/ccode-task-client';
 import {
   DropdownMenu,
@@ -46,14 +45,13 @@ export interface WorkspaceHeaderRef {
 interface WorkspaceHeaderProps {
   queueStatus: NovaQueueStatus | null;
   wideMode: boolean;
-  onToggleWideMode: () => void;
   onOpenSettings: () => void;
   onLogoClick?: () => void;
   sidebarMode?: boolean;
 }
 
 export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderProps>(function WorkspaceHeader(
-  { queueStatus, wideMode, onToggleWideMode, onOpenSettings, onLogoClick, sidebarMode = false },
+  { queueStatus, wideMode, onOpenSettings, onLogoClick, sidebarMode = false },
   ref,
 ) {
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -205,7 +203,6 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
               </DropdownMenuContent>
             </DropdownMenu>
             <ThemeToggle />
-            <WideModeToggle enabled={wideMode} onToggle={onToggleWideMode} />
             <Button variant="outline" size="sm" onClick={onOpenSettings} className="gap-0 px-2 sm:gap-2 sm:px-2.5" title="设置" aria-label="设置">
               <Settings className="w-4 h-4" />
               <span className="hidden sm:inline">设置</span>

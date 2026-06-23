@@ -1,4 +1,5 @@
 import { getNovaTask, getNovaQueueStatus, type NovaTaskResponse, type NovaQueueStatus } from '@/lib/ccode-task-client';
+import { getSub2apiToken } from '@/lib/sub2api-token';
 
 type TaskUpdateHandler = (task: NovaTaskResponse) => void;
 type QueueUpdateHandler = (stats: NovaQueueStatus) => void;
@@ -72,6 +73,23 @@ class NovaTaskSocket {
       return;
     }
     this.connect();
+  }
+
+  /**
+   * 发送身份认证消息(token 不走 URL,符合安全约束)。在 open 后、任何 subscribe
+   * 之前发送;WebSocket 保证消息按发送顺序到达,故后端 subscribe 鉴权时身份已就绪。
+   * 无 token(老单机模式/未登录)时不发,后端按未认证处理。
+   */
+  private sendAuth(): void {
+    let token: string | null = null;
+    try {
+      token = getSub2apiToken();
+    } catch {
+      token = null;
+    }
+    if (token) {
+      this.send({ type: 'auth', token });
+    }
   }
 
   subscribeTask(taskId: string, handler: TaskUpdateHandler): () => void {
@@ -196,6 +214,8 @@ class NovaTaskSocket {
       this.reconnectAttempt = 0;
       this.consecutiveFailures = 0;
       this.startHeartbeat();
+      // 身份认证必须先于任何 subscribe 发送(后端 subscribe 鉴权依赖 ws.userId)。
+      this.sendAuth();
       // 重新订阅
       const taskIds = Array.from(this.taskHandlers.keys());
       if (taskIds.length > 0) {

@@ -9,7 +9,8 @@ import {
   getGptImageAdvancedParamsForModel,
   type AgentResolvedLayout,
 } from '@/lib/model-capabilities';
-import type { ModelId } from '@/lib/gemini-config';
+import { getDefaultModelId, type ModelId } from '@/lib/gemini-config';
+import { normalizeModel } from '@/lib/model-capabilities';
 import {
   streamAgentChat,
   describeImage,
@@ -41,6 +42,7 @@ import {
   type PendingGenerationData,
 } from '@/lib/agent-context-store';
 import { getDefaultConfiguredTextModel } from '@/lib/model-endpoints';
+import { loadRegistry, getImageModelById } from '@/lib/nova-models';
 
 export type AgentPhase = 'idle' | 'loading' | 'describing' | 'streaming' | 'proposal' | 'generating';
 
@@ -169,7 +171,11 @@ export function useAgentChat() {
   const [proposal, setProposal] = useState<AgentProposal | null>(null);
   const [streamingText, setStreamingText] = useState('');
   const [streamingReasoning, setStreamingReasoning] = useState('');
-  const [imageModel, setImageModelState] = useState<ModelId>(AGENT_DEFAULT_IMAGE_MODEL_FALLBACK);
+  const [imageModel, setImageModelState] = useState<ModelId>(
+    // 用 normalizeModel 解析:有配置的默认图片模型则用它,否则才回落到内置常量。
+    // 避免「已在设置里配了默认模型,Agent 仍显示写死的 gemini 回落」。
+    () => normalizeModel(getDefaultModelId()) || AGENT_DEFAULT_IMAGE_MODEL_FALLBACK
+  );
   const [error, setError] = useState<string | null>(null);
   const [generatingTaskId, setGeneratingTaskId] = useState<string | null>(null);
   const [generatingStartedAt, setGeneratingStartedAt] = useState<number | null>(null);
@@ -256,7 +262,9 @@ export function useAgentChat() {
       setMessages(session.messages);
       setImages(session.images);
       seqRef.current = session.images.reduce((max, img) => Math.max(max, parseImgSeq(img.imgId)), 0);
-      if (session.imageModel) setImageModelState(session.imageModel as ModelId);
+      if (session.imageModel && getImageModelById(loadRegistry(), session.imageModel)) {
+        setImageModelState(session.imageModel as ModelId);
+      }
 
       if (pending) {
         // 恢复待确认的提案，使用户刷新后仍可看到「等待你确认」卡片
@@ -335,6 +343,7 @@ export function useAgentChat() {
         previewDataUrl,
         describeSignal,
         configured.baseUrl,
+        { source: configured.source, keyId: configured.keyId },
       );
     } catch {
       description = '(图片描述生成失败)';
@@ -367,6 +376,7 @@ export function useAgentChat() {
       record.thumbnail,
       undefined,
       configured.baseUrl,
+      { source: configured.source, keyId: configured.keyId },
     );
     const description = newDescription || '(无描述)';
     const updated: AgentImageRecord = { ...record, description };
@@ -391,6 +401,8 @@ export function useAgentChat() {
         history,
         webSearch: webSearchEnabled,
         catalog: catalog.map(img => ({ imgId: img.imgId, description: img.description })),
+        source: configured.source,
+        keyId: configured.keyId,
       },
       {
         onDelta: token => appendStreamingToken('text', token),

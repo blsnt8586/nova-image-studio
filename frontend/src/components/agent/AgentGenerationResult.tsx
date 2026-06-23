@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Brain, Copy, Check, Clock, Loader2, RefreshCw, Sparkles, Image as ImageIcon, MessageSquare, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/clipboard';
 import { renderReasoning } from '@/lib/render-reasoning';
 import type { AgentPhase } from '@/hooks/useAgentChat';
 
@@ -135,12 +136,10 @@ export function AgentGenerationResult({ text, reasoning }: AgentGenerationResult
   const sections = parseGenerationText(text);
   
   const handleCopy = useCallback(async (content: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(content);
+    const ok = await copyText(content);
+    if (ok) {
       setCopiedText(label);
       setTimeout(() => setCopiedText(null), 2000);
-    } catch {
-      // 剪贴板写入失败静默忽略
     }
   }, []);
   
@@ -206,12 +205,10 @@ export function AgentGenerationProgress({
   ];
 
   const handleCopy = useCallback(async (content: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(content);
+    const ok = await copyText(content);
+    if (ok) {
       setCopiedText(label);
       setTimeout(() => setCopiedText(null), 2000);
-    } catch {
-      // 剪贴板写入失败静默忽略
     }
   }, []);
 

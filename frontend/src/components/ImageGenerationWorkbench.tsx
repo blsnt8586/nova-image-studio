@@ -10,7 +10,7 @@ import { MissingApiKeyDialog } from '@/components/MissingApiKeyDialog';
 import { QuickPromptDialog } from '@/components/QuickPromptDialog';
 import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
 import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
-import { GenerationParamsBar, type GenerationParamsValue } from '@/components/GenerationParamsBar';
+import { GenerationParamsPanel, type GenerationParamsValue } from '@/components/GenerationParamsPanel';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
 import { streamPromptOptimize, type StreamPromptOptimizeHandle } from '@/lib/prompt-optimize-client';
 import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
@@ -36,6 +36,7 @@ import {
 import { prepareUploadImage, getOptimizationBadge } from '@/lib/upload-image-cache';
 import { MAX_UPLOAD_SIZE_BYTES } from '@/lib/constants';
 import { dispatchImageActionToast } from '@/lib/image-actions';
+import { validateGenerationSelection } from '@/lib/generation-selection';
 import type { AspectRatio, OutputSize, RefImageData } from '@/lib/job-store';
 import type { ImageFormSettings } from '@/lib/form-settings';
 import type { ImageToImageSubmitInput, TextToImageSubmitInput } from '@/lib/workspace-task-service';
@@ -99,6 +100,7 @@ function getSettingsFallback(preferImageSettings: boolean): Partial<WorkbenchSet
 }
 
 export function ImageGenerationWorkbench({
+  wideMode = false,
   onSubmitText,
   onSubmitImage,
   disabled = false,
@@ -245,7 +247,7 @@ export function ImageGenerationWorkbench({
 
     const images = pendingFiles.map(f => ({ dataUrl: f.dataUrl, mimeType: f.mimeType }));
     const handle = streamPromptOptimize(
-      { apiKey: textModel.apiKey, mode: currentMode, prompt: prompt.trim(), ...(images.length > 0 ? { images } : {}) },
+      { apiKey: textModel.apiKey, mode: currentMode, prompt: prompt.trim(), source: textModel.source, keyId: textModel.keyId, ...(images.length > 0 ? { images } : {}) },
       {
         onDelta(token) { setOptimizedText(prev => prev + token); },
         onDone() { setOptimizing(false); },
@@ -508,6 +510,16 @@ export function ImageGenerationWorkbench({
   const handleSubmit = () => {
     if (!prompt.trim() || disabled || loading) return;
 
+    // 提交前校验:AI 模型、输出尺寸、宽高比都必须已选择(未配置模型时拦在这一步)
+    const selectionCheck = validateGenerationSelection(
+      { model, outputSize, aspectRatio },
+      MODEL_OPTIONS,
+    );
+    if (!selectionCheck.ok) {
+      dispatchImageActionToast(selectionCheck.message ?? '请完成生成参数选择。', 'error');
+      return;
+    }
+
     const modelWithBilling = model;
     if (pendingFiles.length > 0) {
       onSubmitImage({
@@ -562,8 +574,8 @@ export function ImageGenerationWorkbench({
   const canClear = prompt.trim().length > 0 || pendingFiles.length > 0;
 
   return (
-    <div ref={formRef} className="space-y-4">
-      <div className="bg-muted/50 border border-border rounded-xl shadow-md">
+    <div ref={formRef} className={cn('flex flex-col', wideMode && 'xl:h-full')}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-border bg-muted/50 shadow-md">
         {disabled ? (
           <div className="flex min-h-40 flex-col items-center justify-center gap-4 px-4 py-8 text-center">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -577,65 +589,63 @@ export function ImageGenerationWorkbench({
           </div>
         ) : (
           <>
-            <div className="p-4 pb-2">
-              <div className="flex gap-3">
-                <div
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={() => setIsDragOver(false)}
-                  className={cn(
-                    'relative flex-[3] overflow-hidden rounded-xl border-2 border-dashed px-6 py-8 text-center transition-all',
-                    isDragOver
-                      ? 'border-primary bg-primary/20'
-                      : 'cursor-pointer border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10',
-                  )}
-                >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFileSelect}
-                    disabled={loading}
-                    className="absolute inset-0 h-full w-full cursor-pointer overflow-hidden opacity-0 disabled:cursor-not-allowed"
-                    style={{ fontSize: 0 }}
-                  />
-                  <CloudUpload className={cn('mx-auto mb-1 h-6 w-6', isDragOver ? 'text-primary' : 'text-muted-foreground')} />
-                  <p className="text-sm font-medium">
-                    {loading ? '读取中...' : isDragOver ? '将图像拖放到这里' : '参考图（可选）'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">点击选择 · 拖放 · Ctrl+V 粘贴</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {pendingFiles.length} / {maxImages} 张
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAssetPickerOpen(true)}
-                  disabled={loading || pendingFiles.length >= maxImages}
-                  title="从素材库导入参考图"
-                  className="flex flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 px-3 py-4 text-center transition-all hover:border-primary/50 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <ImagePlus className="h-6 w-6 text-muted-foreground" />
-                  <span className="text-sm font-medium">素材库</span>
-                  <span className="text-xs text-muted-foreground">导入参考图</span>
-                </button>
-              </div>
+            <div
+              className="px-4 pt-4 pb-2"
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={() => setIsDragOver(false)}
+            >
+              <AttachmentChips
+                files={pendingFiles}
+                onRemove={handleRemovePending}
+                sourceKind="upload"
+                sourceLabel="生图参考图"
+                prompt={prompt}
+                showDownload={false}
+                showCopy
+                showUseAsReference={false}
+                chipClassName="h-[120px] w-[120px]"
+                leading={
+                  <div className="flex shrink-0 gap-2">
+                    <div
+                      className={cn(
+                        'relative h-[120px] w-[120px] overflow-hidden rounded-lg border-2 border-dashed transition-all',
+                        isDragOver
+                          ? 'border-primary bg-primary/20'
+                          : 'border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10',
+                        (loading || pendingFiles.length >= maxImages) && 'opacity-50',
+                      )}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFileSelect}
+                        disabled={loading || pendingFiles.length >= maxImages}
+                        title={isDragOver ? '将图像拖放到这里' : '点击选择 · 拖放 · Ctrl+V 粘贴'}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                        style={{ fontSize: 0 }}
+                      />
+                      <div className="pointer-events-none flex h-full w-full flex-col items-center justify-center gap-1">
+                        <CloudUpload className={cn('h-6 w-6', isDragOver ? 'text-primary' : 'text-muted-foreground')} />
+                        <span className="text-xs font-medium leading-none">参考图</span>
+                        <span className="text-[10px] leading-none text-muted-foreground">{pendingFiles.length} / {maxImages} 张</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAssetPickerOpen(true)}
+                      disabled={loading || pendingFiles.length >= maxImages}
+                      title="从素材库导入参考图"
+                      className="flex h-[120px] w-[120px] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 text-center transition-all hover:border-primary/50 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <ImagePlus className="h-6 w-6 text-muted-foreground" />
+                      <span className="text-xs font-medium leading-none">素材库</span>
+                    </button>
+                  </div>
+                }
+              />
             </div>
-
-            {pendingFiles.length > 0 && (
-              <div className="px-4 pb-2">
-                <AttachmentChips
-                  files={pendingFiles}
-                  onRemove={handleRemovePending}
-                  sourceKind="upload"
-                  sourceLabel="生图参考图"
-                  prompt={prompt}
-                  showDownload={false}
-                  showCopy
-                  showUseAsReference={false}
-                />
-              </div>
-            )}
 
             <Textarea
               ref={textareaRef}
@@ -643,18 +653,18 @@ export function ImageGenerationWorkbench({
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={pendingFiles.length > 0 ? '描述如何调整参考图...' : '描述你想要生成的图像...'}
-              rows={3}
-              className="resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4"
+              rows={6}
+              className="resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4 [field-sizing:initial] min-h-[144px]"
             />
 
-            <div className="px-3 pt-2 pb-2 sm:px-4">
-              <GenerationParamsBar
+            <div className="border-t border-border px-3 pt-4 pb-2 sm:px-4">
+              <GenerationParamsPanel
                 value={{ model, outputSize, customSize, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
                 onChange={handleParamsChange}
               />
             </div>
 
-            <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-2 sm:w-auto sm:px-4">
+            <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-3 pt-2 sm:w-auto sm:px-4">
               <Button variant="ghost" size="icon" onClick={() => setQuickPromptOpen(true)} title="快速提示词">
                 <Zap className="w-4 h-4" />
               </Button>
@@ -678,7 +688,7 @@ export function ImageGenerationWorkbench({
         )}
       </div>
 
-      {uploadError && <p className="text-sm text-destructive">{uploadError}</p>}
+      {uploadError && <p className="mt-2 text-sm text-destructive">{uploadError}</p>}
       <MissingApiKeyDialog
         open={missingApiKeyDialogOpen}
         onOpenChange={setMissingApiKeyDialogOpen}

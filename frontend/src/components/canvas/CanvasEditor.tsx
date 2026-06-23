@@ -117,6 +117,8 @@ async function optimizeImportedPromptContent(prompt: PromptWithKey, referenceIma
       mode: "canvas-prompt-gallery-import",
       prompt: original,
       context: `当前模板包含 ${referenceImageCount} 张参考图。画布会在生成配置里单独放置模板参考图，并用“目标角色图”单独指定用户上传的目标角色/OC图。`,
+      source: textModel.source,
+      keyId: textModel.keyId,
     },
     {
       onDelta(token) { output += token; },
@@ -1239,7 +1241,7 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast }: 
         ].filter(Boolean).join("\n\n") || undefined;
 
         optimizeHandleRef.current = streamPromptOptimize(
-          { apiKey: textModel.apiKey, mode, prompt: promptText, images, context },
+          { apiKey: textModel.apiKey, mode, prompt: promptText, images, context, source: textModel.source, keyId: textModel.keyId },
           {
             onDelta(token) { setOptimizedText((prev) => prev + token); },
             onDone() { setOptimizing(false); },

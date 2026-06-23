@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { AttachmentChips } from '@/components/AttachmentChips';
 import { MissingApiKeyDialog } from '@/components/MissingApiKeyDialog';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/clipboard';
 import { prepareUploadImage } from '@/lib/upload-image-cache';
 import { streamReversePrompt, type StreamReverseHandle } from '@/lib/reverse-prompt-client';
 import {
@@ -292,6 +293,8 @@ export function ReversePromptForm({ wideMode = false, disabled = false, onConfig
         mode,
         imageDataUrl: pendingFile.dataUrl,
         mimeType: pendingFile.mimeType,
+        source: configuredModel.source,
+        keyId: configuredModel.keyId,
       },
       {
         onDelta: (token) => {
@@ -364,11 +367,11 @@ export function ReversePromptForm({ wideMode = false, disabled = false, onConfig
 
   const handleCopy = async (text: string, slot: 'current' | 'previous') => {
     if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
+    const ok = await copyText(text);
+    if (ok) {
       setCopyState(slot);
       setTimeout(() => setCopyState(prev => (prev === slot ? null : prev)), 1500);
-    } catch {
+    } else {
       setError('复制失败，请手动选择文字复制');
     }
   };

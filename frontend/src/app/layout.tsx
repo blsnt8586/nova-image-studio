@@ -3,6 +3,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Script from "next/script";
 import { ServiceWorkerManager } from "@/components/ServiceWorkerManager";
+import { Sub2apiBootstrap } from "@/components/Sub2apiBootstrap";
+import { SettingsGate } from "@/components/SettingsGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -58,9 +60,8 @@ export default function RootLayout({
             __html: `
               (function() {
                 try {
-                  var stored = window.localStorage.getItem('nova-wide-mode');
-                  var wide = stored === 'enabled' && window.innerWidth >= 1280;
-                  if (wide) {
+                  // 宽屏为默认布局，只要视口够宽即开启（窄视口由 useWideMode 自动关闭）。
+                  if (window.innerWidth >= 1280) {
                     document.documentElement.setAttribute('data-wide-mode', '');
                   }
                 } catch {}
@@ -79,10 +80,11 @@ export default function RootLayout({
           </svg>
         </div>
         <TooltipProvider>
+          <Sub2apiBootstrap />
           <ServiceWorkerManager />
           <ErrorBoundary>
             <main>
-              {children}
+              <SettingsGate>{children}</SettingsGate>
             </main>
           </ErrorBoundary>
         </TooltipProvider>

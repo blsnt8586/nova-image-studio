@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Database,
@@ -32,24 +32,21 @@ import { Switch } from '@/components/ui/switch';
 import { BackupProgress } from '@/components/BackupProgress';
 import {
   BUILTIN_IMAGE_PRESETS,
-  BUILTIN_IMAGE_PRESET_OPTIONS,
   DEFAULT_DEFAULTS,
-  DEFAULT_TEXT_MODEL_TEMPLATES,
   generateModelId,
-  getDefaultTextModelTemplate,
-  getCompleteImageModels,
-  getCompleteTextModels,
   getImageModelOutputSizes,
+  humanModelName,
   loadRegistry,
   saveRegistry,
   type DefaultModels,
   type ImageModelConfig,
-  type ProviderProtocol,
   type TextModelConfig,
 } from '@/lib/nova-models';
 import { syncDynamicModelExports } from '@/lib/gemini-config';
 import { exportAllData, importAllData, downloadBlob, generateBackupFilename, type BackupProgress as BackupProgressType } from '@/lib/backup-utils';
 import { checkModelsAvailability, type ModelStatus } from '@/lib/ccode-task-client';
+import { loadSub2apiKeys, loadSub2apiModels, PROXY_BASE_PATH, type Sub2apiKeyEntry, type Sub2apiModelEntry } from '@/lib/sub2api-bootstrap';
+import { SUB2API_PROXY_API_KEY } from '@/lib/sub2api-token';
 import { hasAnyApiKey } from '@/lib/settings-storage';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
 import { PROMPT_DATA_SOURCES, getPromptSourceLabel } from '@/lib/prompt-gallery-data';
@@ -68,32 +65,35 @@ function cloneTextModel(model: TextModelConfig): TextModelConfig {
   return { ...model };
 }
 
-function createImageModelDraft(): ImageModelConfig {
+/** 图片模型草稿:固定走 sub2api 代理,apiKey 用哨兵,baseUrl 固定,modelId/keyId 待用户选择。 */
+function createImageModelDraft(origin: string): ImageModelConfig {
   const preset = BUILTIN_IMAGE_PRESETS['gpt-image-2'];
   return {
     id: generateModelId('img'),
-    protocol: preset.protocol,
+    protocol: 'openai',
     name: '',
     modelId: '',
-    apiKey: '',
-    baseUrl: preset.baseUrl,
+    apiKey: SUB2API_PROXY_API_KEY,
+    baseUrl: origin + PROXY_BASE_PATH,
     builtinPreset: preset.id,
     maxRefImages: preset.maxRefImages,
     maxOutputSize: preset.maxOutputSize,
     supportsAdvancedParams: preset.supportsAdvancedParams,
+    source: 'sub2api',
   };
 }
 
-function createTextModelDraft(): TextModelConfig {
-  const template = getDefaultTextModelTemplate('openai');
+/** 文本模型草稿:固定走 sub2api 代理,apiKey 用哨兵,baseUrl 固定,modelId/keyId 待用户选择。 */
+function createTextModelDraft(origin: string): TextModelConfig {
   return {
     id: generateModelId('txt'),
-    protocol: template.protocol,
+    protocol: 'openai',
     name: '',
     modelId: '',
-    apiKey: '',
-    baseUrl: template.baseUrl,
-    note: template.note,
+    apiKey: SUB2API_PROXY_API_KEY,
+    baseUrl: origin + PROXY_BASE_PATH,
+    note: 'sub2api',
+    source: 'sub2api',
   };
 }
 
@@ -105,12 +105,32 @@ function isCompleteTextModel(model: TextModelConfig): boolean {
   return Boolean(model.name.trim() && model.modelId.trim() && model.apiKey.trim() && model.baseUrl.trim());
 }
 
-function getImageModelLabel(models: ImageModelConfig[], id: string): string {
-  return models.find((model) => model.id === id)?.name || id;
+/**
+ * 构造 sub2api API Key 下拉选项,label 始终显示 Key 名称。
+ * 若当前选中的 keyId 不在已加载列表里(列表未就绪),补一条占位项,
+ * 用列表中的同名或回退文案,避免直接把裸 keyId 当名称展示。
+ */
+function sub2apiKeyOptions(
+  keys: Sub2apiKeyEntry[],
+  selectedKeyId: string | undefined,
+): Array<{ value: string; label: string }> {
+  const options = keys.map((k) => ({ value: k.id, label: k.name || `Key #${k.id}` }));
+  if (selectedKeyId && !options.some((o) => o.value === selectedKeyId)) {
+    options.unshift({ value: selectedKeyId, label: `Key #${selectedKeyId}（加载中…）` });
+  }
+  return options;
 }
 
-function getTextModelLabel(models: TextModelConfig[], id: string): string {
-  return models.find((model) => model.id === id)?.name || id;
+// 把模型检测结果(status.modelId 实际是内部 id)解析为可读名称。
+// 不能用 getTextModelLabel(...) || getImageModelLabel(...):未命中的一侧会
+// 返回原始内部 id(真值),导致 || 短路,图片模型永远显示内部 id。
+export function resolveModelStatusLabel(
+  imageModels: ImageModelConfig[],
+  textModels: TextModelConfig[],
+  id: string,
+): string {
+  const found = imageModels.find((m) => m.id === id) || textModels.find((m) => m.id === id);
+  return found ? humanModelName(found) : humanModelName({ name: '', modelId: '', id });
 }
 
 function normalizeDefaults(
@@ -144,12 +164,20 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
   const [checkingModels, setCheckingModels] = useState(false);
   const [modelStatuses, setModelStatuses] = useState<ModelStatus[] | null>(null);
   const [modelCheckError, setModelCheckError] = useState<string | null>(null);
+  // sub2api API Key 列表(供模型下拉选 keyId)
+  const [sub2apiKeys, setSub2apiKeys] = useState<Sub2apiKeyEntry[]>([]);
+  // 各 keyId 可用模型缓存:`${keyId || '__default__'}` → 模型列表
+  const [sub2apiModelsByKey, setSub2apiModelsByKey] = useState<Record<string, Sub2apiModelEntry[]>>({});
+  // 正在加载模型的 keyId 集合(避免重复请求 / 显示加载态)
+  const [loadingModelKeys, setLoadingModelKeys] = useState<Record<string, boolean>>({});
 
   const [backupProgress, setBackupProgress] = useState<BackupProgressType>({ percent: 0, message: '' });
   const [isBackupActive, setIsBackupActive] = useState(false);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [backupSuccess, setBackupSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 已发起/已完成加载的 cacheKey 集合(用 ref 防重,避免在 effect 中同步 setState)。
+  const modelFetchStartedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isOpen) return;
@@ -165,7 +193,50 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
     setModelCheckError(null);
     setBackupError(null);
     setBackupSuccess(null);
+    // 重置模型加载缓存(账户/Key 可能已变)
+    modelFetchStartedRef.current = new Set();
+    setSub2apiModelsByKey({});
+    setLoadingModelKeys({});
   }, [isOpen]);
+
+  // 弹窗打开时拉取 sub2api API Key 列表(用已存 JWT)。失败/无 token 静默置空。
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    loadSub2apiKeys({})
+      .then((keys) => {
+        if (!cancelled) setSub2apiKeys(keys);
+      })
+      .catch(() => {
+        if (!cancelled) setSub2apiKeys([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  // 按需拉取某个 keyId 可用的模型列表(带缓存,避免重复请求)。
+  // 仅在异步回调里 setState(不在渲染/effect 同步阶段),符合 React 副作用约束。
+  const ensureModelsForKey = useCallback((keyId: string | undefined) => {
+    const cacheKey = keyId && keyId.trim() ? keyId.trim() : '__default__';
+    if (modelFetchStartedRef.current.has(cacheKey)) return;
+    modelFetchStartedRef.current.add(cacheKey);
+    setLoadingModelKeys((l) => ({ ...l, [cacheKey]: true }));
+    void loadSub2apiModels(keyId, {})
+      .then((models) => {
+        setSub2apiModelsByKey((m) => ({ ...m, [cacheKey]: models }));
+      })
+      .catch(() => {
+        setSub2apiModelsByKey((m) => ({ ...m, [cacheKey]: [] }));
+      })
+      .finally(() => {
+        setLoadingModelKeys((l) => {
+          const next = { ...l };
+          delete next[cacheKey];
+          return next;
+        });
+      });
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -184,10 +255,35 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
     [selectedTextModelId, textModels],
   );
 
+  // 选中的 sub2api 模型变化(或其 keyId 变化)时,按需拉取该 key 的可用模型。
+  useEffect(() => {
+    if (!isOpen) return;
+    if (selectedImageModel?.source === 'sub2api') ensureModelsForKey(selectedImageModel.keyId);
+  }, [isOpen, selectedImageModel?.source, selectedImageModel?.keyId, ensureModelsForKey]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (selectedTextModel?.source === 'sub2api') ensureModelsForKey(selectedTextModel.keyId);
+  }, [isOpen, selectedTextModel?.source, selectedTextModel?.keyId, ensureModelsForKey]);
+
+  // 取某个 sub2api 模型当前 keyId 对应的模型下拉选项。
+  const modelOptionsFor = useCallback((keyId: string | undefined) => {
+    const cacheKey = keyId && keyId.trim() ? keyId.trim() : '__default__';
+    const list = sub2apiModelsByKey[cacheKey] || [];
+    return list.map((m) => ({ value: m.id, label: m.name || m.id }));
+  }, [sub2apiModelsByKey]);
+
+  const isLoadingModelsFor = useCallback((keyId: string | undefined) => {
+    const cacheKey = keyId && keyId.trim() ? keyId.trim() : '__default__';
+    return !!loadingModelKeys[cacheKey];
+  }, [loadingModelKeys]);
+
   const handleAddImageModel = () => {
-    const draft = createImageModelDraft();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const draft = createImageModelDraft(origin);
     setImageModels((prev) => [...prev, draft]);
     setSelectedImageModelId(draft.id);
+    ensureModelsForKey(draft.keyId);
   };
 
   const handleUpdateImageModel = (id: string, patch: Partial<ImageModelConfig>) => {
@@ -199,13 +295,21 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
         next.protocol = preset.protocol;
         next.name = preset.name;
         next.modelId = preset.modelId;
-        next.baseUrl = preset.baseUrl;
+        // sub2api 模型的 baseUrl 固定指向代理,不随预设重置
+        if (model.source !== 'sub2api') {
+          next.baseUrl = preset.baseUrl;
+        }
         next.maxRefImages = preset.maxRefImages;
         next.maxOutputSize = preset.maxOutputSize;
         next.supportsAdvancedParams = preset.supportsAdvancedParams;
       }
       if (patch.protocol === 'google') {
         next.supportsAdvancedParams = false;
+      }
+      // sub2api 模型切换 Key 时清空已选模型(不同 Key 可用模型可能不同),并触发拉取。
+      if (model.source === 'sub2api' && patch.keyId !== undefined && patch.keyId !== model.keyId) {
+        next.modelId = '';
+        ensureModelsForKey(patch.keyId);
       }
       return next;
     }));
@@ -225,24 +329,24 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
   };
 
   const handleAddTextModel = () => {
-    const draft = createTextModelDraft();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const draft = createTextModelDraft(origin);
     setTextModels((prev) => [...prev, draft]);
     setSelectedTextModelId(draft.id);
-  };
-
-  const handleApplyTextTemplate = (id: string, protocol: ProviderProtocol) => {
-    const template = getDefaultTextModelTemplate(protocol);
-    handleUpdateTextModel(id, {
-      protocol: template.protocol,
-      name: template.name,
-      modelId: template.modelId,
-      baseUrl: template.baseUrl,
-      note: template.note,
-    });
+    ensureModelsForKey(draft.keyId);
   };
 
   const handleUpdateTextModel = (id: string, patch: Partial<TextModelConfig>) => {
-    setTextModels((prev) => prev.map((model) => (model.id === id ? { ...model, ...patch } : model)));
+    setTextModels((prev) => prev.map((model) => {
+      if (model.id !== id) return model;
+      const next = { ...model, ...patch };
+      // sub2api 模型切换 Key 时清空已选模型,并触发拉取。
+      if (model.source === 'sub2api' && patch.keyId !== undefined && patch.keyId !== model.keyId) {
+        next.modelId = '';
+        ensureModelsForKey(patch.keyId);
+      }
+      return next;
+    }));
   };
 
   const handleDeleteTextModel = (id: string) => {
@@ -310,6 +414,11 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
     try {
       const statuses = await checkModelsAvailability(configuredModels.map((model) => model.id));
       setModelStatuses(statuses);
+      if (statuses.length === 0) {
+        // checkModelsAvailability 只校验「已保存」registry 里的模型。
+        // 若有未保存的新增/修改,这里会查不到 → 提示先保存。
+        setModelCheckError('没有可检查的已保存模型。如果刚新增或修改了模型,请先点「保存设置」再检查。');
+      }
     } catch (err) {
       setModelCheckError(err instanceof Error ? err.message : '检查模型失败');
     } finally {
@@ -358,8 +467,8 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const completeImageOptions = imageModels.filter(isCompleteImageModel).map((model) => ({ value: model.id, label: model.name }));
-  const completeTextOptions = textModels.filter(isCompleteTextModel).map((model) => ({ value: model.id, label: model.name }));
+  const completeImageOptions = imageModels.filter(isCompleteImageModel).map((model) => ({ value: model.id, label: humanModelName(model) }));
+  const completeTextOptions = textModels.filter(isCompleteTextModel).map((model) => ({ value: model.id, label: humanModelName(model) }));
   const selectedImageOutputSizes = selectedImageModel ? getImageModelOutputSizes(selectedImageModel) : ['1K'];
 
   return (
@@ -396,7 +505,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-sm font-medium">模型级独立配置</p>
-                <p className="text-xs text-muted-foreground">每个模型单独记录协议、Base URL、API Key。外部只显示配置完整的模型。</p>
+                <p className="text-xs text-muted-foreground">每个模型选择 API Key 与模型 ID 即可,统一经本服务代理调用。外部只显示配置完整的模型。</p>
               </div>
               <Button onClick={persistRegistry} className="gap-2">
                 <Save className="w-4 h-4" />
@@ -428,7 +537,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                       onClick={() => setSelectedImageModelId(model.id)}
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedImageModelId === model.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
                     >
-                      <div className="font-medium">{model.name || '未命名模型'}</div>
+                      <div className="font-medium">{humanModelName(model)}</div>
                       <div className="text-xs text-muted-foreground">{isCompleteImageModel(model) ? '配置完成' : '待补全'}</div>
                     </button>
                   ))}
@@ -437,39 +546,38 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                 {selectedImageModel && (
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">内置模板</label>
+                      <label className="text-xs text-muted-foreground">API Key</label>
                       <Select
-                        value={selectedImageModel.builtinPreset}
-                        onValueChange={(value) => handleUpdateImageModel(selectedImageModel.id, { builtinPreset: value as ImageModelConfig['builtinPreset'] })}
-                        options={BUILTIN_IMAGE_PRESET_OPTIONS}
+                        value={selectedImageModel.keyId || ''}
+                        onValueChange={(value) => handleUpdateImageModel(selectedImageModel.id, { keyId: value })}
+                        options={sub2apiKeyOptions(sub2apiKeys, selectedImageModel.keyId)}
                       />
+                      <p className="text-xs text-muted-foreground">由 sub2api 提供,可选;留空将使用账户的第一个 Key。</p>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">协议</label>
+                      <label className="text-xs text-muted-foreground">模型 ID</label>
                       <Select
-                        value={selectedImageModel.protocol}
-                        onValueChange={(value) => handleUpdateImageModel(selectedImageModel.id, { protocol: value as ProviderProtocol })}
-                        options={[
-                          { value: 'google', label: 'Google' },
-                          { value: 'openai', label: 'OpenAI Images' },
-                        ]}
+                        value={selectedImageModel.modelId}
+                        onValueChange={(value) => {
+                          const opt = modelOptionsFor(selectedImageModel.keyId).find((o) => o.value === value);
+                          handleUpdateImageModel(selectedImageModel.id, {
+                            modelId: value,
+                            ...(selectedImageModel.name.trim() ? {} : { name: opt?.label || value }),
+                          });
+                        }}
+                        options={modelOptionsFor(selectedImageModel.keyId)}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        {isLoadingModelsFor(selectedImageModel.keyId)
+                          ? '正在加载该 Key 可用的模型…'
+                          : modelOptionsFor(selectedImageModel.keyId).length === 0
+                            ? '未获取到可用模型,请确认已选择正确的 API Key。'
+                            : '从该 API Key 可用的模型中选择(图片模型请选图片类模型)。'}
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">显示名称</label>
                       <Input value={selectedImageModel.name} onChange={(event) => handleUpdateImageModel(selectedImageModel.id, { name: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">模型 ID</label>
-                      <Input value={selectedImageModel.modelId} onChange={(event) => handleUpdateImageModel(selectedImageModel.id, { modelId: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">Base URL</label>
-                      <Input value={selectedImageModel.baseUrl} onChange={(event) => handleUpdateImageModel(selectedImageModel.id, { baseUrl: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">API Key</label>
-                      <Input type="password" value={selectedImageModel.apiKey} onChange={(event) => handleUpdateImageModel(selectedImageModel.id, { apiKey: event.target.value })} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">最大参考图数量</label>
@@ -527,7 +635,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                       onClick={() => setSelectedTextModelId(model.id)}
                       className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedTextModelId === model.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'}`}
                     >
-                      <div className="font-medium">{model.name || '未命名模型'}</div>
+                      <div className="font-medium">{humanModelName(model)}</div>
                       <div className="text-xs text-muted-foreground">{isCompleteTextModel(model) ? '配置完成' : '待补全'}</div>
                     </button>
                   ))}
@@ -536,39 +644,38 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                 {selectedTextModel && (
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">协议</label>
+                      <label className="text-xs text-muted-foreground">API Key</label>
                       <Select
-                        value={selectedTextModel.protocol}
-                        onValueChange={(value) => {
-                          const protocol = value as ProviderProtocol;
-                          handleUpdateTextModel(selectedTextModel.id, { protocol });
-                          handleApplyTextTemplate(selectedTextModel.id, protocol);
-                        }}
-                        options={[
-                          { value: 'openai', label: 'OpenAI Response' },
-                          { value: 'google', label: 'Google Gemini' },
-                        ]}
+                        value={selectedTextModel.keyId || ''}
+                        onValueChange={(value) => handleUpdateTextModel(selectedTextModel.id, { keyId: value })}
+                        options={sub2apiKeyOptions(sub2apiKeys, selectedTextModel.keyId)}
                       />
+                      <p className="text-xs text-muted-foreground">由 sub2api 提供,可选;留空将使用账户的第一个 Key。</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-muted-foreground">模型 ID</label>
+                      <Select
+                        value={selectedTextModel.modelId}
+                        onValueChange={(value) => {
+                          const opt = modelOptionsFor(selectedTextModel.keyId).find((o) => o.value === value);
+                          handleUpdateTextModel(selectedTextModel.id, {
+                            modelId: value,
+                            ...(selectedTextModel.name.trim() ? {} : { name: opt?.label || value }),
+                          });
+                        }}
+                        options={modelOptionsFor(selectedTextModel.keyId)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {isLoadingModelsFor(selectedTextModel.keyId)
+                          ? '正在加载该 Key 可用的模型…'
+                          : modelOptionsFor(selectedTextModel.keyId).length === 0
+                            ? '未获取到可用模型,请确认已选择正确的 API Key。'
+                            : '从该 API Key 可用的模型中选择(文本模型请选文本类模型)。'}
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs text-muted-foreground">显示名称</label>
                       <Input value={selectedTextModel.name} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { name: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">模型 ID</label>
-                      <Input value={selectedTextModel.modelId} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { modelId: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">Base URL</label>
-                      <Input value={selectedTextModel.baseUrl} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { baseUrl: event.target.value })} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-muted-foreground">API Key</label>
-                      <Input type="password" value={selectedTextModel.apiKey} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { apiKey: event.target.value })} />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <label className="text-xs text-muted-foreground">协议描述</label>
-                      <Input value={selectedTextModel.note || ''} onChange={(event) => handleUpdateTextModel(selectedTextModel.id, { note: event.target.value })} />
                     </div>
                     <div className="md:col-span-2 flex justify-end">
                       <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={() => handleDeleteTextModel(selectedTextModel.id)}>
@@ -626,7 +733,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                   {modelStatuses.map((status) => (
                     <div key={status.modelId} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
                       <div className="min-w-0">
-                        <div className="truncate font-medium">{getTextModelLabel(textModels, status.modelId) || getImageModelLabel(imageModels, status.modelId)}</div>
+                        <div className="truncate font-medium">{resolveModelStatusLabel(imageModels, textModels, status.modelId)}</div>
                         <div className="truncate text-xs text-muted-foreground">{status.message || status.actualName || status.modelId}</div>
                       </div>
                       {status.available ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <XCircle className="w-4 h-4 text-destructive" />}
@@ -759,7 +866,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                 </summary>
                 <ul className="mt-3 list-disc list-inside space-y-2 text-muted-foreground">
                   <li>本站为本地优先应用：模型配置、任务历史、设置与生成图片默认保存在你的浏览器本地。</li>
-                  <li>每个模型的 API Key 和 Base URL 仅用于调用你自己配置的上游服务。</li>
+                  <li>所有模型调用统一经本服务代理转发,不直连第三方上游,你的密钥不会进入浏览器。</li>
                   <li>生图、反推、Agent、提示词优化等功能会把你当前选择的提示词、参考图或对话内容发送到对应模型配置的上游接口。</li>
                   <li>备份文件可能包含模型配置、本地任务记录与图片数据，请自行妥善保管。</li>
                 </ul>

@@ -41,12 +41,15 @@ import {
   getAssetThumbnailBlob,
   getSourceKindLabel,
   listAssets,
+  syncRemoteImageAssets,
+  syncRemoteTextAssets,
   updateImageAsset,
   type AssetItem,
   type AssetSourceKind,
   type ImageAsset,
   type TextAsset,
 } from '@/lib/asset-store';
+import { copyText } from '@/lib/clipboard';
 import { generateAssetMetadata, type AssetMetadataSuggestion } from '@/lib/asset-metadata-client';
 import { dispatchImageActionToast, runImageAction, type ImageActionPayload } from '@/lib/image-actions';
 import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
@@ -299,6 +302,8 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
 
   const reload = useCallback(async () => {
     setLoading(true);
+    // 先把云端资产合并进本地(换设备登录可见):收藏提示词 + 图片素材,best-effort
+    await Promise.all([syncRemoteTextAssets(), syncRemoteImageAssets()]);
     const nextAssets = await listAssets();
     setAssets(nextAssets);
     setLoading(false);
@@ -873,8 +878,9 @@ export function AssetsWorkspace({ wideMode = false, active = true }: AssetsWorks
                       variant="ghost"
                       size="icon-xs"
                       onClick={() => {
-                        void navigator.clipboard?.writeText(asset.content);
-                        dispatchImageActionToast('提示词已复制', 'success');
+                        void copyText(asset.content).then(ok => {
+                          if (ok) dispatchImageActionToast('提示词已复制', 'success');
+                        });
                       }}
                       title="复制提示词"
                     >

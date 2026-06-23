@@ -1,5 +1,9 @@
 'use client';
 
+import { uploadAssetToBackend, listRemoteAssets, type RemoteAsset } from '@/lib/asset-remote-storage';
+import { pushTextAssets, fetchRemoteTextAssets } from '@/lib/text-asset-remote-storage';
+import { hashBlob } from '@/lib/blob-hash';
+
 export type AssetSourceKind =
   | 'text-to-image'
   | 'image-to-image'
@@ -107,21 +111,6 @@ function bufferToHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
     .map(byte => byte.toString(16).padStart(2, '0'))
     .join('');
-}
-
-async function hashBlob(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer();
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    const digest = await crypto.subtle.digest('SHA-256', buffer.slice(0));
-    return bufferToHex(digest);
-  }
-  let hash = 0x811c9dc5;
-  const bytes = new Uint8Array(buffer);
-  for (const byte of bytes) {
-    hash ^= byte;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `fnv32-${blob.size}-${hash.toString(16).padStart(8, '0')}`;
 }
 
 async function hashText(text: string): Promise<string> {
@@ -339,6 +328,8 @@ export async function addImageAsset(input: AddImageAssetInput): Promise<ImageAss
     lastUsedAt: createdAt,
   };
   await putAssetAndBlob(asset, blobRecord);
+  // 上云(第一档持久化):best-effort,不阻塞、失败不影响本地素材库。
+  void uploadAssetToBackend(asset, sourceBlob).catch(() => undefined);
   return asset;
 }
 
@@ -362,6 +353,7 @@ export async function addTextAsset(input: AddTextAssetInput): Promise<TextAsset>
       updatedAt: createdAt,
     };
     await putAssetAndBlob(updated, null);
+    void pushAllTextAssets().catch(() => undefined);
     return updated;
   }
 
@@ -379,7 +371,155 @@ export async function addTextAsset(input: AddTextAssetInput): Promise<TextAsset>
     lastUsedAt: createdAt,
   };
   await putAssetAndBlob(asset, null);
+  void pushAllTextAssets().catch(() => undefined);
   return asset;
+}
+
+/**
+ * 把当前本地全部文本素材集合推到后端(best-effort)。供新增/删除文本素材后调用。
+ * 文本素材无本体,整体作为 JSON 存入 user_settings(详见 text-asset-remote-storage)。
+ */
+async function pushAllTextAssets(): Promise<void> {
+  const texts = await listTextAssets();
+  await pushTextAssets(texts);
+}
+
+/**
+ * 从后端取回文本素材并把本地缺失的(按 hash 去重)合并进本地素材库。
+ * best-effort:无会话/失败时不做任何事,不抛错。换设备登录后调用即可看到云端收藏的提示词。
+ */
+export async function syncRemoteTextAssets(): Promise<void> {
+  let remote: TextAsset[];
+  try {
+    remote = await fetchRemoteTextAssets();
+  } catch {
+    return;
+  }
+  if (remote.length === 0) return;
+
+  let local: TextAsset[];
+  try {
+    local = await listTextAssets();
+  } catch {
+    return;
+  }
+  const localHashes = new Set(local.map(item => item.hash));
+
+  for (const item of remote) {
+    if (!item || item.kind !== 'text' || localHashes.has(item.hash)) continue;
+    try {
+      await putAssetAndBlob(item, null);
+      localHashes.add(item.hash);
+    } catch {
+      // 单条写入失败跳过,不影响其余
+    }
+  }
+}
+
+/**
+ * 把一个云端图片素材下载进本地 IndexedDB(不回传上云,避免循环)。
+ * 按内容 hash 去重;以 objectKey 记到 sourceRef 上,便于下次跳过已导入项。
+ * 失败抛错由调用方吞掉。
+ */
+async function importRemoteImageAsset(remote: RemoteAsset): Promise<void> {
+  const resp = await fetch(remote.url);
+  if (!resp.ok) throw new Error(`下载云端素材失败 (HTTP ${resp.status})`);
+  const blob = await resp.blob();
+  const mimeType = blob.type || remote.mime || 'image/png';
+  const hash = await hashBlob(blob);
+  const key = hash;
+  const createdAt = remote.createdAt ? Date.parse(remote.createdAt) || now() : now();
+
+  const db = await openAssetsDB();
+  if (!db) throw new Error('当前浏览器不支持素材库本地存储');
+  const existingBlob = await getFromStore<AssetBlobRecord>(db, BLOBS_STORE, key);
+  const existingAssets = await getAllFromStore<AssetItem>(db, ASSETS_STORE);
+  db.close();
+
+  // 已存在同内容素材:仅补登记 objectKey(标记为已导入),不重复建项
+  const sameContent = existingAssets
+    .filter(isImageAsset)
+    .find(asset => asset.hash === hash);
+  if (sameContent) {
+    if (sameContent.sourceRef !== remote.objectKey) {
+      await putAssetAndBlob({ ...sameContent, sourceRef: remote.objectKey, updatedAt: now() }, null);
+    }
+    return;
+  }
+
+  const dimensions = existingBlob
+    ? { width: existingBlob.width, height: existingBlob.height, thumbnailBlob: undefined as Blob | undefined }
+    : await getImageDimensionsAndThumbnail(blob);
+  const blobRecord: AssetBlobRecord | null = existingBlob
+    ? null
+    : {
+      key,
+      hash,
+      blob,
+      thumbnailBlob: dimensions.thumbnailBlob,
+      mimeType,
+      sizeBytes: blob.size,
+      width: dimensions.width,
+      height: dimensions.height,
+      createdAt,
+    };
+
+  const asset: ImageAsset = {
+    id: makeId(),
+    kind: 'image',
+    blobKey: key,
+    hash,
+    name: remote.name || `素材-${new Date(createdAt).toLocaleString()}`,
+    mimeType,
+    sizeBytes: blob.size,
+    width: dimensions.width,
+    height: dimensions.height,
+    tags: [],
+    note: '',
+    sourceKind: 'upload',
+    sourceLabel: getSourceKindLabel('upload'),
+    sourceRef: remote.objectKey,
+    createdAt,
+    updatedAt: createdAt,
+    lastUsedAt: createdAt,
+  };
+  await putAssetAndBlob(asset, blobRecord);
+}
+
+/**
+ * 从后端取回图片素材并把本地缺失的下载合并进本地素材库(best-effort)。
+ * 已按 objectKey 导入过的跳过;无会话/失败时不做任何事,不抛错。
+ * 换设备登录后调用即可看到云端图片素材。
+ */
+export async function syncRemoteImageAssets(): Promise<void> {
+  let remote: RemoteAsset[];
+  try {
+    remote = await listRemoteAssets();
+  } catch {
+    return;
+  }
+  if (remote.length === 0) return;
+
+  let local: AssetItem[];
+  try {
+    local = await listAssets('image');
+  } catch {
+    return;
+  }
+  // 已导入的 objectKey 集合:跳过避免重复下载
+  const importedKeys = new Set(
+    local.filter(isImageAsset).map(asset => asset.sourceRef).filter(Boolean) as string[],
+  );
+
+  for (const item of remote) {
+    if (!item || !item.objectKey || importedKeys.has(item.objectKey)) continue;
+    try {
+      await importRemoteImageAsset(item);
+      importedKeys.add(item.objectKey);
+    } catch {
+      // 单条下载/写入失败跳过,不影响其余
+    }
+  }
 }
 
 export async function findImageAssetByBlob(blob: Blob): Promise<ImageAsset | null> {
@@ -487,11 +627,17 @@ export async function deleteAsset(assetId: string): Promise<void> {
   }
   const assets = await getAllFromStore<AssetItem>(db, ASSETS_STORE);
   const shouldDeleteBlob = isImageAsset(asset) && assets.filter(item => isImageAsset(item) && item.id !== assetId && item.blobKey === asset.blobKey).length === 0;
+  const wasTextAsset = isTextAsset(asset);
   return new Promise((resolve, reject) => {
     const tx = db.transaction([ASSETS_STORE, BLOBS_STORE], 'readwrite');
     tx.objectStore(ASSETS_STORE).delete(assetId);
     if (isImageAsset(asset) && shouldDeleteBlob) tx.objectStore(BLOBS_STORE).delete(asset.blobKey);
-    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.oncomplete = () => {
+      db.close();
+      // 文本素材删除后,把更新后的集合推到后端(best-effort,不阻塞)
+      if (wasTextAsset) void pushAllTextAssets().catch(() => undefined);
+      resolve();
+    };
     tx.onerror = () => {
       const error = tx.error || new Error('素材删除失败');
       db.close();

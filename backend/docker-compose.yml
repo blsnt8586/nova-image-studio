@@ -1,0 +1,73 @@
+# Nova Image Studio — 后端依赖基础设施(阶段 1)
+# 仅本地开发使用。生产请用托管/独立部署的 PG / Redis / MinIO,并改掉默认凭证。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nova-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: nova_dev_pw
+      POSTGRES_DB: nova
+    ports:
+      - "5434:5432"
+    volumes:
+      - nova_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova -d nova"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nova-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6381:6379"
+    volumes:
+      - nova_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: nova-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: nova_minio
+      MINIO_ROOT_PASSWORD: nova_minio_dev_pw
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # 控制台
+    volumes:
+      - nova_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 启动后自动创建 bucket(一次性任务)
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 nova_minio nova_minio_dev_pw &&
+      mc mb --ignore-existing local/nova &&
+      echo 'bucket nova ready'
+      "
+
+volumes:
+  nova_pg_data:
+  nova_redis_data:
+  nova_minio_data:

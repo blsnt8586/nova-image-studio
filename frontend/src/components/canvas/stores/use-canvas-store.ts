@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 
 import { nanoid } from "nanoid";
-import { localForageStorage } from "../lib/localforage-storage";
+import { canvasPersistStorage } from "@/lib/canvas-remote-storage";
 import type { CanvasBackgroundMode } from "../lib/canvas-theme";
 import type { CanvasConnection, CanvasNodeData, ViewportTransform } from "../types";
 
@@ -40,11 +40,10 @@ let queuedPersistState: PersistedCanvasState | null = null;
 
 const canvasStorage: PersistStorage<CanvasStore> = {
   getItem: async (name) => {
-    const value = await localForageStorage.getItem(name);
+    const value = (await canvasPersistStorage.getItem(name)) as StorageValue<CanvasStore> | null;
     if (!value) return null;
-    const parsed = JSON.parse(value) as StorageValue<CanvasStore>;
-    queuedPersistState = parsed.state as PersistedCanvasState;
-    return parsed;
+    queuedPersistState = value.state as PersistedCanvasState;
+    return value;
   },
   setItem: (name, value) => {
     const nextState = value.state as PersistedCanvasState;
@@ -53,10 +52,10 @@ const canvasStorage: PersistStorage<CanvasStore> = {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      void localForageStorage.setItem(name, JSON.stringify(value));
+      void canvasPersistStorage.setItem(name, value as unknown as { state: unknown; version?: number });
     }, 400);
   },
-  removeItem: (name) => localForageStorage.removeItem(name),
+  removeItem: (name) => canvasPersistStorage.removeItem(name),
 };
 
 export const useCanvasStore = create<CanvasStore>()(

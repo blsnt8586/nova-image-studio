@@ -36,6 +36,7 @@ import { MemoizedAgentMessageBubble } from '@/components/agent/AgentMessageBubbl
 import { AgentInputEditor, type AgentInputEditorHandle } from '@/components/agent/AgentInputEditor';
 import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/clipboard';
 import { renderReasoning, renderMarkdown } from '@/lib/render-reasoning';
 import { handleMarkdownCodeCopyButtonClick } from '@/lib/markdown-code-copy';
 import { generateUUID } from '@/lib/uuid';
@@ -50,6 +51,7 @@ import {
   getGptImageAdvancedParamsForModel,
   getSizeOptions,
   getSupportsTemperature,
+  normalizeModel,
   supportsCustomSize,
   supportsGptImageAdvancedParams,
   type GptImageAdvancedParams,
@@ -145,12 +147,14 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
 
   // ===== 用户参数状态（持久化到 localStorage）=====
   const savedParams = loadJsonFromStorage<AgentParamsSettings>(AGENT_PARAMS_KEY);
-  const [userModel, setUserModel] = useState<ModelId>(savedParams.model || agent.imageModel);
+  // 用 normalizeModel 校验缓存里的旧模型 id:若已不在当前配置中(如改过模型配置),
+  // 回落到已配置的默认模型,避免显示失效/陈旧的模型。
+  const [userModel, setUserModel] = useState<ModelId>(() => normalizeModel(savedParams.model) || agent.imageModel);
   const [userOutputSize, setUserOutputSize] = useState<OutputSize>(savedParams.outputSize || '1K');
   const [userAspectRatio, setUserAspectRatio] = useState<AspectRatio>(savedParams.aspectRatio || '1:1');
   const [userTemperature, setUserTemperature] = useState<number>(savedParams.temperature ?? 1);
   const [userAdvancedParams, setUserAdvancedParams] = useState<GptImageAdvancedParams>(() =>
-    getGptImageAdvancedParamsForModel(savedParams.model || agent.imageModel, {
+    getGptImageAdvancedParamsForModel(normalizeModel(savedParams.model) || agent.imageModel, {
       quality: savedParams.gptImageQuality,
       style: savedParams.gptImageStyle,
       background: savedParams.gptImageBackground,
@@ -456,7 +460,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
     setOptimizeOpen(true);
 
     const handle = streamPromptOptimize(
-      { apiKey: textModel.apiKey, mode: 'agent', prompt: text, context: context || undefined },
+      { apiKey: textModel.apiKey, mode: 'agent', prompt: text, context: context || undefined, source: textModel.source, keyId: textModel.keyId },
       {
         onDelta(token) { setOptimizedText(prev => prev + token); },
         onDone() { setOptimizing(false); },
@@ -582,8 +586,9 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
             onWithdraw={agent.withdrawTurn}
             onReedit={agent.reeditProposal}
             onCopy={() => {
-              navigator.clipboard.writeText(message.text).catch(() => {});
-              showToast('已复制到剪贴板', 'success');
+              void copyText(message.text).then(ok => {
+                if (ok) showToast('已复制到剪贴板', 'success');
+              });
             }}
             onDelete={() => setDeleteConfirmMsgId(message.id)}
             onRollback={() => setRollbackConfirmMsgId(message.id)}
@@ -1050,8 +1055,7 @@ export function AgentChatWorkspace({ wideMode = false, disabled = false, onConfi
                 <GptImageAdvancedParamsControl
                   value={userAdvancedParams}
                   onChange={setUserAdvancedParams}
-                  variant="outline"
-                  size="xs"
+                  variant="chip"
                 />
               )}
 

@@ -5,13 +5,16 @@ import { createPortal } from 'react-dom';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { ImageGenerationWorkbench } from '@/components/ImageGenerationWorkbench';
 import { ReversePromptForm } from '@/components/ReversePromptForm';
-import { GifGenerationWorkspace } from '@/components/GifGenerationWorkspace';
 import { AgentChatWorkspace } from '@/components/agent/AgentChatWorkspace';
 import { AssetsWorkspace } from '@/components/assets/AssetsWorkspace';
 import { CanvasWorkspace } from '@/components/canvas/CanvasWorkspace';
 import { PromptGallery } from '@/components/PromptGallery';
 import { SettingsModal } from '@/components/SettingsModal';
 import { MissingApiKeyDialog } from '@/components/MissingApiKeyDialog';
+import { LockedAccountDialog, type AccountLockVariant } from '@/components/LockedAccountDialog';
+import { loadSub2apiKeys, loadAccountStatus } from '@/lib/sub2api-bootstrap';
+import { getSub2apiToken } from '@/lib/sub2api-token';
+import { requestSub2apiNavigate } from '@/lib/sub2api-origin';
 import { useQueueStatus } from '@/hooks/useQueueStatus';
 import { useWideMode } from '@/hooks/useWideMode';
 import { useServerTaskPolling } from '@/hooks/useServerTaskPolling';
@@ -31,27 +34,33 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Shuffle, Settings, User, Wallpaper, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Shuffle, Settings, User, Wallpaper } from 'lucide-react';
 import { getNovaTask } from '@/lib/ccode-task-client';
 import { finalizeCompletedServerTask } from '@/lib/workspace-task-service';
 import { classifyTaskFailure } from '@/lib/task-failure';
 import type { RefImageData, StoredJob } from '@/lib/job-store';
 import { subscribeImageActionToasts, subscribeUseAsImageReference } from '@/lib/image-actions';
+import { onStorageLimit } from '@/lib/storage-limit-notifier';
 import {
+  retryDataToSubmission,
   submitImageToImage,
   submitTextToImage,
   type SubmitActions,
 } from '@/lib/workspace-task-service';
+import { getCompatibleRetryData } from '@/lib/model-capabilities';
 import { cn } from '@/lib/utils';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
 
 export function WorkspaceShell() {
   const queueStatus = useQueueStatus();
-  const { wideMode, toggleWideMode } = useWideMode();
+  const { wideMode } = useWideMode();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [missingApiKeyDialogOpen, setMissingApiKeyDialogOpen] = useState(false);
+  // 硬封印:'out-of-funds'(没余额) / 'no-key'(没创建密钥) / null(放行)。不可关闭,只能自助恢复。
+  const [accountLock, setAccountLock] = useState<AccountLockVariant | null>(null);
+  const [rechecking, setRechecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'image-generation' | 'agent' | 'canvas' | 'assets' | 'reverse-prompt' | 'gif' | 'prompt-gallery'>('agent');
+  const [activeTab, setActiveTab] = useState<'image-generation' | 'agent' | 'canvas' | 'assets' | 'reverse-prompt' | 'prompt-gallery'>('agent');
   const [generationHistoryFilter, setGenerationHistoryFilter] = useState<GenerationHistoryFilter>('all');
   const [generationClearScope, setGenerationClearScope] = useState<HistoryClearScope | null>(null);
   const [referenceDraft, setReferenceDraft] = useState<{ id: number; refImages: RefImageData[] } | null>(null);
@@ -74,6 +83,69 @@ export function WorkspaceShell() {
   }, []);
 
   useEffect(() => subscribeImageActionToasts(detail => showToast(detail.message, detail.type)), [showToast]);
+
+  // 按优先级做账户准入检测,决定弹哪种引导。优先级:余额 > 有无 key > 是否选模型。
+  // - 嵌入(有 JWT)且「余额 ≤ 0 且无有效订阅」→ 硬封印「余额不足」(不可关,自助充值后重新检测)。
+  // - 否则嵌入且 sub2api 一个 API Key 都没有 → 硬封印「无 key」(不可关,去创建后重新检测)。
+  // - 否则未选模型(nova 无完整图片+文本模型)→ 软引导打开设置('configure',可关闭)。
+  // - 全部通过 → 解除所有弹窗。
+  // 既用于进入时检测,也用于封印弹窗的「重新检测」按钮自助恢复。
+  const runAccountGate = useCallback(async () => {
+    const embedded = !!getSub2apiToken();
+    setRechecking(true);
+    try {
+      // 1) 余额优先
+      if (embedded) {
+        try {
+          const status = await loadAccountStatus({});
+          if (status?.outOfFunds) {
+            setAccountLock('out-of-funds');
+            setMissingApiKeyDialogOpen(false);
+            return;
+          }
+        } catch {
+          // 拉取失败不阻断,继续后续检测(生成时后端仍会再拦一次)
+        }
+      }
+
+      // 2) 无 key 硬封印
+      if (embedded) {
+        try {
+          const keys = await loadSub2apiKeys({});
+          if (keys.length === 0) {
+            setAccountLock('no-key');
+            setMissingApiKeyDialogOpen(false);
+            return;
+          }
+        } catch {
+          // 拉取失败不封印,交给后续/后端兜底
+        }
+      }
+
+      // 余额与 key 均通过 → 解除硬封印
+      setAccountLock(null);
+
+      // 3) 有 key 但未选模型 → 软引导设置(可关闭)
+      if (!workspace.hasApiKey) {
+        setMissingApiKeyDialogOpen(true);
+      } else {
+        setMissingApiKeyDialogOpen(false);
+      }
+    } finally {
+      setRechecking(false);
+    }
+  }, [workspace.hasApiKey]);
+
+  // 进入时跑一次。防重入(含 StrictMode 双调用):弹窗幂等,不用 cleanup 取消。
+  const accountCheckedRef = useRef(false);
+  useEffect(() => {
+    if (accountCheckedRef.current) return;
+    accountCheckedRef.current = true;
+    void runAccountGate();
+  }, [runAccountGate]);
+
+  // 云端存储达上限:提示用户(图片已留本地,建议导出/备份后清理)。
+  useEffect(() => onStorageLimit(event => showToast(event.message, 'info')), [showToast]);
 
   useEffect(() => subscribeUseAsImageReference(detail => {
     workspace.setRetryData(null);
@@ -147,6 +219,25 @@ export function WorkspaceShell() {
       }, 5000);
     }
   }, [checkingJobIds, cooldowns, submitActions, showToast]);
+
+  /**
+   * "重试":直接用历史任务的参数重新发起生成,无需回填左侧表单再手动提交。
+   * 先经 getCompatibleRetryData 归一化(避免不兼容的尺寸/参数),再转换为提交入参分发。
+   * 若重试的是「失败」任务:就地重试 —— 先移除原失败卡片,避免残留 + 产生重复条目。
+   * 若是「已完成」任务:保留原图,本次视为按相同参数再生成一张(re-roll)。
+   */
+  const handleRetry = useCallback((job: StoredJob) => {
+    const submission = retryDataToSubmission(getCompatibleRetryData(job));
+    if (job.status === 'failed') {
+      void workspace.removeJob(job.id);
+    }
+    setActiveTab('image-generation');
+    if (submission.mode === 'image-to-image') {
+      void submitImageToImage(submission.input, submitActions, handleSubmitError);
+    } else {
+      void submitTextToImage(submission.input, submitActions, handleSubmitError);
+    }
+  }, [submitActions, handleSubmitError, workspace]);
 
   const generationInitialData = useMemo(() => (
     workspace.retryData
@@ -230,7 +321,6 @@ export function WorkspaceShell() {
             ref={headerRef}
             queueStatus={queueStatus}
             wideMode={wideMode}
-            onToggleWideMode={toggleWideMode}
             onOpenSettings={() => setSettingsOpen(true)}
             onLogoClick={promptGallery.handlePromptGalleryEntry}
             sidebarMode={wideMode}
@@ -298,10 +388,6 @@ export function WorkspaceShell() {
 
                   <div className="flex flex-col gap-1 [&_button]:w-full [&_button]:justify-start [&_button]:rounded-xl [&_button_svg]:size-4 [&_button_svg]:shrink-0">
                     <ThemeToggle />
-                    <Button variant="outline" size="sm" className="w-full justify-start gap-2 rounded-xl px-3 text-xs" onClick={toggleWideMode}>
-                      {wideMode ? <PanelLeftClose className="size-4 shrink-0" /> : <PanelLeftOpen className="size-4 shrink-0" />}
-                      {wideMode ? '退出宽屏' : '宽屏'}
-                    </Button>
                     <Button variant="outline" size="sm" className="w-full justify-start gap-2 rounded-xl px-3 text-xs" onClick={() => setSettingsOpen(true)}>
                       <Settings className="size-4 shrink-0" />
                       设置
@@ -347,7 +433,7 @@ export function WorkspaceShell() {
               !wideMode && activeTab === 'agent' && 'flex flex-1 flex-col min-h-0'
             )}>
               <TabsContent value="image-generation" keepMounted className={cn(wideMode ? 'space-y-6 xl:flex xl:min-h-0 xl:space-y-0' : 'space-y-3')}>
-                <div className={cn(wideMode ? 'grid items-start gap-5 xl:h-full xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(460px,0.95fr)_minmax(0,1.35fr)] xl:items-stretch' : 'space-y-3')}>
+                <div className={cn(wideMode ? 'grid items-start gap-5 xl:h-full xl:min-h-0 xl:flex-1 xl:grid-cols-[1fr_1fr] xl:items-stretch' : 'space-y-3')}>
                   <div className={cn(wideMode && 'xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1')}>
                     <ImageGenerationWorkbench
                       wideMode={wideMode}
@@ -373,10 +459,7 @@ export function WorkspaceShell() {
                     loadedImages={workspace.loadedImages}
                     checkingJobIds={checkingJobIds}
                     cooldowns={cooldowns}
-                    onRetry={job => {
-                      workspace.retryJob(job);
-                      setActiveTab('image-generation');
-                    }}
+                    onRetry={handleRetry}
                     onRetryDownload={workspace.retryDownload}
                     onClear={jobId => void workspace.removeJob(jobId)}
                     onClearAll={scope => setGenerationClearScope(scope)}
@@ -402,7 +485,6 @@ export function WorkspaceShell() {
                 <CanvasWorkspace
                   wideMode={wideMode}
                   onConfigureApiKey={() => setSettingsOpen(true)}
-                  onEnableWideMode={() => { if (!wideMode) toggleWideMode(); }}
                   showToast={showToast}
                 />
               </TabsContent>
@@ -416,16 +498,6 @@ export function WorkspaceShell() {
                   wideMode={wideMode}
                   disabled={!workspace.hasApiKey}
                   onConfigureApiKey={() => setSettingsOpen(true)}
-                />
-              </TabsContent>
-
-              <TabsContent value="gif" keepMounted className={cn(wideMode ? 'space-y-6 xl:min-h-0 xl:flex xl:flex-col' : 'space-y-6')}>
-                <GifGenerationWorkspace
-                  wideMode={wideMode}
-                  hasApiKey={workspace.hasApiKey}
-                  onConfigureApiKey={() => setSettingsOpen(true)}
-                  onError={message => showToast(message, 'error')}
-                  showToast={showToast}
                 />
               </TabsContent>
 
@@ -450,7 +522,16 @@ export function WorkspaceShell() {
       <MissingApiKeyDialog
         open={missingApiKeyDialogOpen}
         onOpenChange={setMissingApiKeyDialogOpen}
+        variant="configure"
         onConfigure={() => setSettingsOpen(true)}
+      />
+
+      <LockedAccountDialog
+        open={accountLock !== null}
+        variant={accountLock ?? 'out-of-funds'}
+        rechecking={rechecking}
+        onRecheck={() => void runAccountGate()}
+        onCreateKey={() => requestSub2apiNavigate('keys')}
       />
 
       <PromptGalleryAccessDialog

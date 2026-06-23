@@ -199,8 +199,7 @@ export function GifParametersPanel(props: GifParametersPanelProps) {
             <GptImageAdvancedParamsControl
               value={props.gptImageAdvancedParams}
               onChange={props.onGptImageAdvancedParamsChange}
-              variant="outline"
-              size="xs"
+              variant="inline"
             />
           )}
 

@@ -13,6 +13,8 @@ const appVersion = rootPkg.version || "0.0.0";
 const nextConfig: NextConfig = {
   // 显式声明追踪根目录，避免 Next.js 16 在 monorepo/多 lockfile 场景下产生警告
   outputFileTracingRoot: path.join(__dirname),
+  // 关闭左下角的 Next.js 开发指示器(N 徽标)
+  devIndicators: false,
   // 仅在生产构建时启用静态导出，开发模式关闭以支持 HMR 热更新
   ...(dev ? {} : { output: "export" }),
   trailingSlash: true,

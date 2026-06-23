@@ -15,6 +15,7 @@ import { getCompatibleRetryData, type RetryData } from '@/lib/model-capabilities
 import { classifyFailureFromMessage } from '@/lib/task-failure';
 import { deleteStoredBlobs, revokeBlobUrls } from '@/lib/image-downloader';
 import { retryDownloadCachedImages } from '@/lib/workspace-task-service';
+import { uploadGenerationToBackend, buildRemoteGenerationJobs } from '@/lib/generation-remote-storage';
 
 function isWaitingJob(job: StoredJob): boolean {
   return job.status === 'processing' || job.status === 'queued' || job.status === '排队中';
@@ -75,6 +76,33 @@ export function useWorkspaceJobs() {
     }
   }, []);
 
+  // 跨设备取回:把云端生图历史合并进列表(best-effort)。
+  // 合成 job 的图片走 presigned URL 直读,不落 IDB;按 remoteGenerationId 去重,避免重复追加。
+  useEffect(() => {
+    let cancelled = false;
+    void buildRemoteGenerationJobs(jobsRef.current)
+      .then(additions => {
+        if (cancelled || additions.length === 0) return;
+        persistJobs(prev => {
+          const known = new Set(prev.map(job => job.remoteGenerationId).filter(Boolean) as string[]);
+          const fresh = additions.filter(job => !job.remoteGenerationId || !known.has(job.remoteGenerationId));
+          if (fresh.length === 0) return prev;
+          const merged = [...prev, ...fresh].sort(
+            (a, b) => +new Date(b.created_at) - +new Date(a.created_at),
+          );
+          return merged;
+        });
+        setLoadedImages(prev => {
+          const next = new Set(prev);
+          for (const job of additions) next.add(job.id);
+          return next;
+        });
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const persistJobs = useCallback((updater: (prev: StoredJob[]) => StoredJob[]) => {
     setJobs(prev => {
       const next = updater(prev);
@@ -108,6 +136,8 @@ export function useWorkspaceJobs() {
       return next;
     });
     await saveImage(job).catch(() => undefined);
+    // 上云(第一档持久化):best-effort,不阻塞 UI、失败不影响本地展示。
+    void uploadGenerationToBackend(job).catch(() => undefined);
   }, [persistJobs]);
 
   const failJob = useCallback(async (jobId: string, error: string, options?: { terminal?: boolean }) => {

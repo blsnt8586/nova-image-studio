@@ -1,6 +1,35 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { TextToImageForm } from '../TextToImageForm'
+import { saveRegistry } from '@/lib/nova-models'
+
+function seedGptImageRegistry() {
+  saveRegistry({
+    imageModels: [
+      {
+        id: 'gpt-image-2',
+        protocol: 'openai',
+        name: 'GPT Image 2',
+        modelId: 'gpt-image-2',
+        apiKey: 'test-api-key',
+        baseUrl: 'https://api.openai.com',
+        builtinPreset: 'gpt-image-2',
+        maxRefImages: 16,
+        maxOutputSize: '4K',
+        supportsAdvancedParams: true,
+      },
+    ],
+    textModels: [],
+    defaults: {
+      textToImage: 'gpt-image-2',
+      imageToImage: 'gpt-image-2',
+      reversePrompt: '',
+      agent: '',
+      promptOptimize: '',
+      imageDescribe: '',
+    },
+  })
+}
 
 describe('TextToImageForm', () => {
   beforeEach(() => {
@@ -55,13 +84,15 @@ describe('TextToImageForm', () => {
   })
 
   it('shows image params control for GPT Image 2 model', async () => {
+    seedGptImageRegistry()
     const onSubmit = vi.fn()
     render(<TextToImageForm onSubmit={onSubmit} initialData={{ model: 'gpt-image-2' }} />)
 
-    expect(await screen.findByTitle('图像参数')).toBeInTheDocument()
+    expect(await screen.findByText('高级')).toBeInTheDocument()
   })
 
   it('submits default image params for GPT Image 2 model when left on auto', async () => {
+    seedGptImageRegistry()
     const onSubmit = vi.fn()
     render(
       <TextToImageForm
@@ -71,7 +102,7 @@ describe('TextToImageForm', () => {
     )
 
     const textarea = screen.getByPlaceholderText('描述你想要生成的图像...')
-    await screen.findByTitle('图像参数')
+    await screen.findByText('高级')
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({

@@ -6,7 +6,7 @@ import { Loader2, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Mode, StoredJob } from '@/lib/job-store';
 import { cn } from '@/lib/utils';
-import { getModelDisplayName } from '@/lib/model-capabilities';
+import { getModelDisplayName, getOutputSizeLabel } from '@/lib/model-capabilities';
 import { CompletedJobCard } from '@/components/workspace/results/CompletedJobCard';
 
 export type GenerationHistoryFilter = 'all' | 'text-to-image' | 'image-to-image';
@@ -161,28 +161,11 @@ function useColumnCount(
   wideMode: boolean,
   ready: boolean,
 ) {
-  const [columns, setColumns] = useState(() => (wideMode && ready ? 2 : 1));
-
-  useEffect(() => {
-    if (!wideMode || !ready) {
-      queueMicrotask(() => setColumns(1));
-      return;
-    }
-    const el = ref.current;
-    if (!el) return;
-
-    const compute = () => {
-      const width = el.clientWidth;
-      setColumns(width >= 1080 ? 3 : width >= 680 ? 2 : 1);
-    };
-
-    compute();
-    const observer = new ResizeObserver(compute);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref, wideMode, ready]);
-
-  return wideMode ? columns : 1;
+  // 生图任务历史固定一行一个,信息更完整、可读性更好。
+  void ref;
+  void wideMode;
+  void ready;
+  return 1;
 }
 
 function VirtualJobList({
@@ -317,10 +300,21 @@ export function HistoryJobList({
       return (
         <div className="rounded-xl border border-destructive/20 bg-card p-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <p className="truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex flex-shrink-0 items-center rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                  生成失败
+                </span>
+                <p className="truncate text-base text-foreground">&quot;{job.prompt}&quot;</p>
+              </div>
               <p className="max-h-20 overflow-y-auto text-sm text-destructive">{job.error || '任务失败'}</p>
-              <p className="text-xs text-muted-foreground">{getModelDisplayName(job.model)}</p>
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span>{getModelDisplayName(job.model)}</span>
+                <span>·</span>
+                <span>{job.custom_size || getOutputSizeLabel(job.output_size)}</span>
+                <span>·</span>
+                <span>{new Date(job.created_at).toLocaleString()}</span>
+              </p>
             </div>
             <div className="flex gap-1">
               {allowCheckStatus && (

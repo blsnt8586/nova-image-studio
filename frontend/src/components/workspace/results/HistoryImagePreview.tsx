@@ -232,7 +232,7 @@ export function HistoryImagePreview({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex select-none items-center justify-center bg-black/80"
+      className="fixed inset-0 z-[9999] flex select-none items-center justify-center bg-black/40"
       style={{
         position: 'fixed',
         top: 0,
@@ -242,7 +242,16 @@ export function HistoryImagePreview({
         width: '100vw',
         height: '100vh',
       }}
+      onClick={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+    <div
+      className="relative flex h-[80vh] w-[80vw] select-none items-center justify-center overflow-hidden rounded-2xl bg-black/80 shadow-2xl"
       onWheel={handleWheel}
+      onClick={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <button
         onClick={onClose}
@@ -321,7 +330,7 @@ export function HistoryImagePreview({
       </div>
 
       <div
-        className="h-screen w-screen overflow-hidden"
+        className="h-full w-full overflow-hidden"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -336,11 +345,12 @@ export function HistoryImagePreview({
           src={currentSrc}
           alt={alt}
           draggable={false}
-          className="h-screen w-screen origin-center object-contain will-change-transform"
+          className="h-full w-full origin-center object-contain will-change-transform"
           style={{ transition: dragging ? 'none' : 'transform 120ms ease-out' }}
           onClick={event => event.stopPropagation()}
         />
       </div>
+    </div>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { X, ImageIcon, BadgeCheck } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import type { AssetSourceKind } from '@/lib/asset-store';
@@ -28,6 +29,9 @@ interface AttachmentChipsProps {
   showCopy?: boolean;
   showAddToAssets?: boolean;
   showUseAsReference?: boolean;
+  leading?: ReactNode;
+  trailing?: ReactNode;
+  chipClassName?: string;
 }
 
 export function AttachmentChips({
@@ -40,10 +44,13 @@ export function AttachmentChips({
   showCopy = false,
   showAddToAssets = true,
   showUseAsReference = true,
+  leading,
+  trailing,
+  chipClassName,
 }: AttachmentChipsProps) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
-  if (files.length === 0) return null;
+  if (files.length === 0 && !leading && !trailing) return null;
 
   const previewImages = files
     .map(file => file.preview)
@@ -67,7 +74,8 @@ export function AttachmentChips({
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {leading}
         {files.map((file, index) => (
           <div key={file.id} className="relative group">
             <button
@@ -77,7 +85,7 @@ export function AttachmentChips({
                   setPreviewIndex(index);
                 }
               }}
-              className="w-16 h-16 rounded-lg overflow-hidden bg-muted flex items-center justify-center disabled:cursor-default"
+              className={cn('w-16 h-16 rounded-lg overflow-hidden bg-muted flex items-center justify-center disabled:cursor-default', chipClassName)}
               disabled={!file.preview}
               title={file.preview ? `预览 ${file.name}` : file.name}
             >
@@ -130,6 +138,7 @@ export function AttachmentChips({
             </Button>
           </div>
         ))}
+        {trailing}
       </div>
 
       {previewIndex !== null && currentPreviewImageIndex >= 0 && createPortal(

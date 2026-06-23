@@ -4,9 +4,15 @@ import {
   getDefaultTextModel,
   getTextModelById,
   loadRegistry,
+  type ImageModelSource,
   type ProviderProtocol,
   type TextModelConfig,
 } from '@/lib/nova-models';
+import { resolveAuthApiKey } from '@/lib/sub2api-token';
+
+function withResolvedKey<T extends { apiKey: string }>(model: T): T {
+  return { ...model, apiKey: resolveAuthApiKey(model.apiKey) };
+}
 
 function trimTrailingSlashes(value: string): string {
   return String(value || '').trim().replace(/\/+$/, '');
@@ -40,14 +46,16 @@ export function buildGeminiStreamGenerateContentUrl(baseUrl: string, modelId: st
 
 export function getConfiguredTextModel(modelId: string): TextModelConfig | undefined {
   const registry = loadRegistry();
-  return getTextModelById(registry, modelId);
+  const model = getTextModelById(registry, modelId);
+  return model ? withResolvedKey(model) : undefined;
 }
 
 export function getDefaultConfiguredTextModel(
   task: 'reversePrompt' | 'agent' | 'promptOptimize' | 'imageDescribe',
 ): TextModelConfig | undefined {
   const registry = loadRegistry();
-  return getDefaultTextModel(registry, task);
+  const model = getDefaultTextModel(registry, task);
+  return model ? withResolvedKey(model) : undefined;
 }
 
 export function requireDefaultConfiguredTextModel(
@@ -59,3 +67,32 @@ export function requireDefaultConfiguredTextModel(
   }
   return configured;
 }
+
+export interface TextAuthHeaderInput {
+  apiKey: string;
+  protocol: ProviderProtocol;
+  /** 仅 sub2api 模型携带,用于让后端换成对应 sk- key(key 不进浏览器)。 */
+  source?: ImageModelSource;
+  keyId?: string;
+}
+
+/**
+ * 构造文本模型请求的鉴权头。
+ * - OpenAI:`Authorization: Bearer <key>`
+ * - Google:额外带 `x-goog-api-key`
+ * - sub2api 模型且有 keyId 时:额外带 `X-Sub2api-Key-Id`(后端据此换 sk- key)
+ */
+export function buildTextAuthHeaders(input: TextAuthHeaderInput): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${input.apiKey}`,
+  };
+  if (input.protocol === 'google') {
+    headers['x-goog-api-key'] = input.apiKey;
+  }
+  const keyId = input.keyId !== undefined && input.keyId !== null ? String(input.keyId).trim() : '';
+  if (input.source === 'sub2api' && keyId) {
+    headers['X-Sub2api-Key-Id'] = keyId;
+  }
+  return headers;
+}
+

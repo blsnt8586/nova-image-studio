@@ -13,6 +13,7 @@ import {
   buildResponsesApiUrl,
   normalizeModelBaseUrl,
 } from '@/lib/model-endpoints';
+import { resolveAuthApiKey, getSub2apiToken } from '@/lib/sub2api-token';
 
 export interface ImageReference {
   data: string;
@@ -49,6 +50,8 @@ export interface CreateNovaTaskInput {
   gptImageBackground?: GptImageBackground;
   parallelCount: number;
   images: ImageReference[];
+  /** sub2api 模型选中的 API Key id;后端据此向 sub2api 代查 sk- key。 */
+  keyId?: string;
 }
 
 export interface NovaTaskResponse {
@@ -164,6 +167,21 @@ function normalizeModelCheckError(error: unknown): Error {
   return error instanceof Error ? error : new Error(errorMessage);
 }
 
+/**
+ * /api/nova/* 的鉴权头:存在 sub2api JWT 时附带 Authorization: Bearer <jwt>,
+ * 让后端按真实 user_id 归属/隔离任务(无 token 时回退单机命名空间)。
+ * token 只走请求头,绝不进 URL,符合安全约束。
+ */
+function novaAuthHeaders(): Record<string, string> {
+  let token: string | null = null;
+  try {
+    token = getSub2apiToken();
+  } catch {
+    token = null;
+  }
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function fetchWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit = {},
@@ -191,7 +209,7 @@ async function fetchWithTimeout(
 export async function createNovaTask(input: CreateNovaTaskInput): Promise<string> {
   const response = await fetchWithTimeout('/api/nova/tasks', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...novaAuthHeaders() },
     body: JSON.stringify(input),
   }, CREATE_TASK_TIMEOUT);
   const data = await parseTaskResponse<CreateTaskResponse>(response);
@@ -246,6 +264,8 @@ export async function checkModelsAvailability(
           };
         }
 
+        const authKey = resolveAuthApiKey(model.apiKey);
+
         if (imageModelIds.has(model.id)) {
           const listUrl = model.protocol === 'google'
             ? `${normalizedBaseUrl}/v1beta/models`
@@ -254,11 +274,11 @@ export async function checkModelsAvailability(
             method: 'GET',
             headers: model.protocol === 'google'
               ? {
-                  'x-goog-api-key': model.apiKey,
-                  Authorization: `Bearer ${model.apiKey}`,
+                  'x-goog-api-key': authKey,
+                  Authorization: `Bearer ${authKey}`,
                 }
               : {
-                  Authorization: `Bearer ${model.apiKey}`,
+                  Authorization: `Bearer ${authKey}`,
                 },
           });
           if (!response.ok) {
@@ -286,7 +306,7 @@ export async function checkModelsAvailability(
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${model.apiKey}`,
+            Authorization: `Bearer ${authKey}`,
             Accept: 'application/json',
           },
           body: JSON.stringify({
@@ -325,16 +345,17 @@ export async function checkModelsAvailability(
   }
 }
 
-export function resolveImageTaskProvider(modelId: string): { apiKey: string; baseUrl: string; protocol: ProviderProtocol; modelId: string } {
+export function resolveImageTaskProvider(modelId: string): { apiKey: string; baseUrl: string; protocol: ProviderProtocol; modelId: string; keyId?: string } {
   const registry = loadRegistry();
   const model = getImageModelById(registry, modelId);
   if (!model) throw new Error(`未找到图片模型配置: ${modelId}`);
   const normalizedBaseUrl = normalizeModelBaseUrl(model.protocol, model.baseUrl);
   return {
-    apiKey: model.apiKey,
+    apiKey: resolveAuthApiKey(model.apiKey),
     baseUrl: normalizedBaseUrl,
     protocol: model.protocol,
     modelId: model.modelId,
+    keyId: model.keyId,
   };
 }
 
@@ -344,7 +365,7 @@ export function resolveTextTaskProvider(modelId: string): { apiKey: string; base
   if (!model) throw new Error(`未找到文本模型配置: ${modelId}`);
   const normalizedBaseUrl = normalizeModelBaseUrl(model.protocol, model.baseUrl);
   return {
-    apiKey: model.apiKey,
+    apiKey: resolveAuthApiKey(model.apiKey),
     baseUrl: normalizedBaseUrl,
     protocol: model.protocol,
   };
@@ -354,6 +375,7 @@ export async function getNovaTask(taskId: string): Promise<NovaTaskResponse> {
   const response = await fetchWithTimeout(`/api/nova/tasks/${encodeURIComponent(taskId)}`, {
     method: 'GET',
     cache: 'no-store',
+    headers: novaAuthHeaders(),
   }, TASK_REQUEST_TIMEOUT);
   return parseTaskResponse(response);
 }
@@ -362,6 +384,7 @@ export async function getNovaQueueStatus(): Promise<NovaQueueStatus> {
   const response = await fetchWithTimeout('/api/nova/queue-status', {
     method: 'GET',
     cache: 'no-store',
+    headers: novaAuthHeaders(),
   }, TASK_REQUEST_TIMEOUT);
   return parseTaskResponse(response);
 }
@@ -369,6 +392,7 @@ export async function getNovaQueueStatus(): Promise<NovaQueueStatus> {
 export async function ackNovaTask(taskId: string): Promise<void> {
   await fetch(`/api/nova/tasks/${encodeURIComponent(taskId)}/ack`, {
     method: 'POST',
+    headers: novaAuthHeaders(),
   }).catch(() => undefined);
 }
 

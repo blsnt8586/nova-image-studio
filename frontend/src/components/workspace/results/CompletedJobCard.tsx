@@ -7,6 +7,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useImageLazyLoad } from '@/hooks/useImageLazyLoad';
 import { getImageSrc, type StoredJob } from '@/lib/job-store';
+import { copyText } from '@/lib/clipboard';
 import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
 import { getModelDisplayName, getOutputSizeLabel } from '@/lib/model-capabilities';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
@@ -216,9 +217,12 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
   };
 
   const copyPrompt = () => {
-    navigator.clipboard.writeText(job.prompt);
-    setPromptCopied(true);
-    setTimeout(() => setPromptCopied(false), 2000);
+    void copyText(job.prompt).then(ok => {
+      if (ok) {
+        setPromptCopied(true);
+        setTimeout(() => setPromptCopied(false), 2000);
+      }
+    });
   };
 
   const openPreview = async () => {
