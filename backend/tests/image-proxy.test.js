@@ -61,6 +61,16 @@ describe('proxy/image-proxy — validateImageProxyTarget', () => {
     expect(Array.isArray(DEFAULT_IMAGE_PROXY_HOSTS)).toBe(true);
     expect(DEFAULT_IMAGE_PROXY_HOSTS).toContain('githubusercontent.com');
   });
+
+  it('接受提示词广场实际用到的图床域名', () => {
+    const accept = (u) => expect(validateImageProxyTarget(u)).toBe(u);
+    accept('https://files.catbox.moe/oelr50.png');
+    accept('https://i.ibb.co/abc/x.png');
+    accept('https://cms-assets.youmind.com/x.png');
+    accept('https://upload.maynor1024.live/x.png');
+    accept('https://cdn.imgedify.com/x.png');
+    accept('https://img.shields.io/badge/x.svg');
+  });
 });
 
 function mockRes() {

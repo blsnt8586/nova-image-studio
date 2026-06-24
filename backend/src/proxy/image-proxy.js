@@ -23,6 +23,13 @@ const DEFAULT_IMAGE_PROXY_HOSTS = [
   'proxy.ccode.vip', // 现有公共代理
   'jsdelivr.net', // cdn.jsdelivr.net(GitHub 镜像)
   'sinaimg.cn', // 常见图床
+  // 提示词广场实际用到的图床(按出现频次枚举,见 image-proxy 白名单说明)
+  'catbox.moe', // files.catbox.moe — 主图床
+  'ibb.co', // i.ibb.co — imgbb
+  'youmind.com', // cms-assets.youmind.com / marketing-assets.youmind.com
+  'maynor1024.live', // upload.maynor1024.live / apipro.maynor1024.live
+  'imgedify.com', // cdn.imgedify.com
+  'shields.io', // img.shields.io — README badge
 ];
 
 /**
