@@ -66,6 +66,10 @@ describe('checkModelsAvailability 文本模型探测请求', () => {
     // 与 agent 对话保持一致:流式请求,避免上游对非流式推理请求返回 api_error。
     expect(captured.body.stream).toBe(true);
     expect(captured.accept).toContain('text/event-stream');
+    // 不带 max_output_tokens:推理模型(gpt-5.x)的 reasoning 阶段就远超小额度,
+    // 设上限会在生成前被上游拒绝(Service temporarily unavailable)。
+    // agent 对话请求本身也不带此字段。
+    expect(captured.body.max_output_tokens).toBeUndefined();
     expect(result[0].available).toBe(true);
   });
 });

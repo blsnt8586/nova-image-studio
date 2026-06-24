@@ -310,15 +310,14 @@ export async function checkModelsAvailability(
             Accept: 'text/event-stream',
           },
           body: JSON.stringify({
-            // 与 agent 对话请求保持一致:用 stream:true。
-            // 非流式(stream:false)请求推理模型时,上游会回 api_error /
-            // "Service temporarily unavailable",而流式请求正常。
-            // 探活只需连接成功(200 且流可开),不消费完整输出。
+            // 与 agent 对话请求保持一致:用 stream:true、且不带 max_output_tokens。
+            // 非流式 或 设了过小 max_output_tokens 时,上游对推理模型(gpt-5.x)会回
+            // api_error / "Service temporarily unavailable"(reasoning 阶段就超额度)。
+            // 探活只需连接成功(200 且流可开),拿到流即 cancel,不会消费完整输出。
             model: model.modelId,
             stream: true,
             reasoning: { effort: 'low' },
             input: 'hi',
-            max_output_tokens: 16,
           }),
         });
         if (!response.ok) {
