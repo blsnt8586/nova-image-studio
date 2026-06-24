@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
-import { Loader2, ExternalLink, Copy, Check, ChevronLeft, ChevronRight, Maximize2, X, Tag, Download, ImagePlus, Wand2, Save } from 'lucide-react';
+import { Loader2, ExternalLink, Copy, Check, ChevronLeft, ChevronRight, Maximize2, X, Tag, Download, ImagePlus, Wand2, Save, ImageOff } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { runImageAction, dispatchImageActionToast, type ImageActionPayload } from '@/lib/image-actions';
 import { copyText } from '@/lib/clipboard';
 import { proxyImage } from '@/lib/proxy-image';
+import { resolveImageDisplayState } from '@/lib/image-display-state';
 import { addTextAsset } from '@/lib/asset-store';
 import type { PromptGalleryItem } from '@/lib/prompt-gallery-types';
 
@@ -45,12 +46,17 @@ export const PromptCard = memo(function PromptCard({
   const [imageIndex, setImageIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  // 加载失败的图片 URL(死链:上游 404 → 代理 502)。用于显示占位符而非无限转圈。
+  const [erroredUrls, setErroredUrls] = useState<Set<string>>(new Set());
   const cardRef = useRef<HTMLDivElement>(null);
 
   const hasMultipleImages = prompt.images.length > 1;
   const currentImageUrl = prompt.images[imageIndex];
   const isCached = imageCache.has(currentImageUrl);
-  const imageLoaded = isCached;
+  const displayState = resolveImageDisplayState({
+    loaded: isCached,
+    errored: erroredUrls.has(currentImageUrl),
+  });
   const currentPayload = makePromptGalleryImagePayload(prompt, currentImageUrl, imageIndex);
 
   // Intersection Observer for lazy rendering
@@ -80,6 +86,15 @@ export const PromptCard = memo(function PromptCard({
 
   const handleImageLoaded = () => {
     onImageLoad(currentImageUrl);
+  };
+
+  const handleImageError = () => {
+    setErroredUrls((prev) => {
+      if (prev.has(currentImageUrl)) return prev;
+      const next = new Set(prev);
+      next.add(currentImageUrl);
+      return next;
+    });
   };
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -112,18 +127,26 @@ export const PromptCard = memo(function PromptCard({
         >
           {isVisible ? (
             <>
-              {!imageLoaded && (
+              {displayState === 'loading' && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
               )}
-              <img
-                src={proxyImage(currentImageUrl)}
-                alt={prompt.title}
-                className={`w-full h-full object-cover transition-opacity ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
-                loading="lazy"
-                onLoad={handleImageLoaded}
-              />
+              {displayState === 'error' ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-muted-foreground/60">
+                  <ImageOff className="w-7 h-7" />
+                  <span className="text-[11px]">图片源已失效</span>
+                </div>
+              ) : (
+                <img
+                  src={proxyImage(currentImageUrl)}
+                  alt={prompt.title}
+                  className={`w-full h-full object-cover transition-opacity ${displayState === 'loaded' ? 'opacity-100' : 'opacity-0'}`}
+                  loading="lazy"
+                  onLoad={handleImageLoaded}
+                  onError={handleImageError}
+                />
+              )}
             </>
           ) : (
             <div className="absolute inset-0 flex items-center justify-center">
