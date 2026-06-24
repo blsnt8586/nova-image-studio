@@ -9,6 +9,7 @@ const { createMultiUserRouter } = require('./src/routes');
 const { createTaskEngine } = require('./src/tasks/task-engine');
 const { createPgTaskGateway } = require('./src/tasks/pg-task-gateway');
 const { extractToken } = require('./src/auth/with-auth');
+const { createImageProxyHandler } = require('./src/proxy/image-proxy');
 
 const ENV_FILE_PATH = path.join(process.cwd(), '.env');
 const GLOBAL_TASK_CONCURRENCY = 50;
@@ -121,6 +122,10 @@ const taskRefImages = new Map();
 // 无 JWT 入口(默认单机使用)的任务归属:同一命名空间,行为等同原单用户。
 // 有 JWT 时按代验身份隔离。sentinel 不含 '/',可安全作为 MinIO key 前缀。
 const STANDALONE_USER_ID = '__standalone__';
+
+// 提示词广场图片代理:浏览器 → 本服务器(国外 CN 精品链路)→ 第三方图床,
+// 绕开国内直连第三方被墙的问题。带白名单 + SSRF 防护,见 image-proxy.js。
+const imageProxyHandler = createImageProxyHandler({ fetchImpl: globalThis.fetch });
 
 const app = next({ dev: IS_DEV, hostname: HOSTNAME, port: PORT, dir: path.join(__dirname, '..', 'frontend') });
 const handle = app.getRequestHandler();
@@ -1237,6 +1242,11 @@ async function handleApi(req, res, pathname) {
 
     if (req.method === 'GET' && apiPathname === '/api/nova/queue-status') {
       sendJson(res, 200, await getQueueStats());
+      return true;
+    }
+
+    if (req.method === 'GET' && apiPathname === '/api/nova/img-proxy') {
+      await imageProxyHandler(req, res);
       return true;
     }
 

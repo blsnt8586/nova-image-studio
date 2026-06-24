@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { runImageAction, dispatchImageActionToast, type ImageActionPayload } from '@/lib/image-actions';
 import { copyText } from '@/lib/clipboard';
+import { proxyImage } from '@/lib/proxy-image';
 import { addTextAsset } from '@/lib/asset-store';
 import type { PromptGalleryItem } from '@/lib/prompt-gallery-types';
 
@@ -117,7 +118,7 @@ export const PromptCard = memo(function PromptCard({
                 </div>
               )}
               <img
-                src={currentImageUrl}
+                src={proxyImage(currentImageUrl)}
                 alt={prompt.title}
                 className={`w-full h-full object-cover transition-opacity ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                 loading="lazy"
@@ -161,7 +162,7 @@ export const PromptCard = memo(function PromptCard({
 
           {/* External link */}
           <a
-            href={currentImageUrl}
+            href={proxyImage(currentImageUrl)}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -714,7 +715,7 @@ export function PromptGalleryImagePreviewModal({
         style={{ cursor: dragging ? 'grabbing' : 'grab', willChange: 'transform, opacity' }}
       >
         <img
-          src={currentSrc}
+          src={proxyImage(currentSrc)}
           alt={title}
           draggable={false}
           className="w-screen h-screen object-contain origin-center transition-transform duration-75"
