@@ -307,14 +307,15 @@ export async function checkModelsAvailability(
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${authKey}`,
-            Accept: 'application/json',
+            Accept: 'text/event-stream',
           },
           body: JSON.stringify({
+            // 与 agent 对话请求保持一致:用 stream:true。
+            // 非流式(stream:false)请求推理模型时,上游会回 api_error /
+            // "Service temporarily unavailable",而流式请求正常。
+            // 探活只需连接成功(200 且流可开),不消费完整输出。
             model: model.modelId,
-            stream: false,
-            // 推理模型(gpt-5.x)的 reasoning tokens 也计入 max_output_tokens,
-            // 给太小会被上游以 api_error / Service temporarily unavailable 拒绝。
-            // 压低推理开销 + 给足 token 上限,只为探活,不关心实际输出内容。
+            stream: true,
             reasoning: { effort: 'low' },
             input: 'hi',
             max_output_tokens: 16,
@@ -329,6 +330,8 @@ export async function checkModelsAvailability(
             message: `${response.status}${detail ? ` ${detail.slice(0, 120)}` : ''}`,
           };
         }
+        // 流式探活:拿到可读流即视为连通,主动取消以释放连接,不读完整响应。
+        response.body?.cancel().catch(() => undefined);
         return {
           modelId: model.id,
           actualName: model.name,
