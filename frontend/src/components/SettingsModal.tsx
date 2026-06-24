@@ -98,11 +98,11 @@ function createTextModelDraft(origin: string): TextModelConfig {
 }
 
 function isCompleteImageModel(model: ImageModelConfig): boolean {
-  return Boolean(model.name.trim() && model.modelId.trim() && model.apiKey.trim() && model.baseUrl.trim());
+  return Boolean(model.name?.trim() && model.modelId?.trim() && model.apiKey?.trim() && model.baseUrl?.trim());
 }
 
 function isCompleteTextModel(model: TextModelConfig): boolean {
-  return Boolean(model.name.trim() && model.modelId.trim() && model.apiKey.trim() && model.baseUrl.trim());
+  return Boolean(model.name?.trim() && model.modelId?.trim() && model.apiKey?.trim() && model.baseUrl?.trim());
 }
 
 /**
@@ -562,7 +562,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                           const opt = modelOptionsFor(selectedImageModel.keyId).find((o) => o.value === value);
                           handleUpdateImageModel(selectedImageModel.id, {
                             modelId: value,
-                            ...(selectedImageModel.name.trim() ? {} : { name: opt?.label || value }),
+                            ...(selectedImageModel.name?.trim() ? {} : { name: opt?.label || value }),
                           });
                         }}
                         options={modelOptionsFor(selectedImageModel.keyId)}
@@ -660,7 +660,7 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                           const opt = modelOptionsFor(selectedTextModel.keyId).find((o) => o.value === value);
                           handleUpdateTextModel(selectedTextModel.id, {
                             modelId: value,
-                            ...(selectedTextModel.name.trim() ? {} : { name: opt?.label || value }),
+                            ...(selectedTextModel.name?.trim() ? {} : { name: opt?.label || value }),
                           });
                         }}
                         options={modelOptionsFor(selectedTextModel.keyId)}
