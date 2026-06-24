@@ -312,8 +312,12 @@ export async function checkModelsAvailability(
           body: JSON.stringify({
             model: model.modelId,
             stream: false,
+            // 推理模型(gpt-5.x)的 reasoning tokens 也计入 max_output_tokens,
+            // 给太小会被上游以 api_error / Service temporarily unavailable 拒绝。
+            // 压低推理开销 + 给足 token 上限,只为探活,不关心实际输出内容。
+            reasoning: { effort: 'low' },
             input: 'hi',
-            max_output_tokens: 4,
+            max_output_tokens: 16,
           }),
         });
         if (!response.ok) {
