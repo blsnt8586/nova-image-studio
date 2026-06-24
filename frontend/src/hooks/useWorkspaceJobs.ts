@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { hasAnyApiKey } from '@/lib/settings-storage';
+import { useHasApiKey } from '@/hooks/useHasApiKey';
 import {
   deleteImage,
   loadJobs,
@@ -30,7 +30,8 @@ function loadInitialJobs(): StoredJob[] {
 }
 
 export function useWorkspaceJobs() {
-  const [hasApiKey, setHasApiKey] = useState(() => hasAnyApiKey());
+  // 实时跟随设置保存,避免「配置完不刷新仍提示未配置」。
+  const hasApiKey = useHasApiKey();
   const [jobs, setJobs] = useState<StoredJob[]>(loadInitialJobs);
   const jobsRef = useRef(jobs);
   useEffect(() => { jobsRef.current = jobs; }, [jobs]);
@@ -246,7 +247,6 @@ export function useWorkspaceJobs() {
     retryData,
     clearAllDialogOpen,
     cancelJobId,
-    setHasApiKey,
     setRetryData,
     setClearAllDialogOpen,
     setCancelJobId,

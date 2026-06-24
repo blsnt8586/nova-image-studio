@@ -2,6 +2,13 @@
 
 import { getCompleteImageModels, getCompleteTextModels, loadRegistry } from '@/lib/nova-models';
 
+/**
+ * 模型注册表保存后派发的窗口事件名。
+ * SettingsModal 保存时 dispatch,各处「是否已配置模型」的状态据此实时重算,
+ * 避免「配置完不刷新页面仍提示未配置」(挂载时只算一次的陈旧 state)。
+ */
+export const MODEL_REGISTRY_UPDATED_EVENT = 'nova-model-registry-updated';
+
 export function getStoredApiKey(): string {
   const registry = loadRegistry();
   const imageModel = getCompleteImageModels(registry)[0];
