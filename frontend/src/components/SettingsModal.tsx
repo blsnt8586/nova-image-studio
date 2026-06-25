@@ -603,6 +603,18 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange }: SettingsModal
                         />
                       </div>
                     )}
+                    {selectedImageModel.protocol === 'openai' && (
+                      <div className="flex items-center justify-between rounded-lg border px-3 py-2 md:col-span-2">
+                        <div>
+                          <p className="text-sm font-medium">智能重绘</p>
+                          <p className="text-xs text-muted-foreground">开启后，图生图可框选/涂抹局部区域进行精准编辑（带 mask）。</p>
+                        </div>
+                        <Switch
+                          checked={selectedImageModel.supportsMaskEdit === true}
+                          onCheckedChange={(checked) => handleUpdateImageModel(selectedImageModel.id, { supportsMaskEdit: checked })}
+                        />
+                      </div>
+                    )}
                     <div className="md:col-span-2 flex justify-end">
                       <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={() => handleDeleteImageModel(selectedImageModel.id)}>
                         <Trash2 className="w-4 h-4" />

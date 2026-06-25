@@ -10,6 +10,7 @@ const { createTaskEngine } = require('./src/tasks/task-engine');
 const { createPgTaskGateway } = require('./src/tasks/pg-task-gateway');
 const { extractToken } = require('./src/auth/with-auth');
 const { createImageProxyHandler } = require('./src/proxy/image-proxy');
+const { createGptImageRequestInit } = require('./src/proxy/gpt-image-request');
 
 const ENV_FILE_PATH = path.join(process.cwd(), '.env');
 const GLOBAL_TASK_CONCURRENCY = 50;
@@ -107,18 +108,12 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 // 开源版：不再硬编码模型列表，由前端通过 protocol 字段指定协议类型
 const VALID_PROTOCOLS = new Set(['google', 'openai']);
-const GPT_IMAGE_QUALITIES = new Set(['auto', 'high', 'medium', 'low']);
-const GPT_IMAGE_STYLES = new Set(['auto', 'vivid', 'natural']);
-const GPT_IMAGE_BACKGROUNDS = new Set(['auto', 'transparent', 'opaque']);
-const DEFAULT_GPT_IMAGE_ADVANCED_PARAMS = {
-  quality: 'auto',
-  style: 'auto',
-  background: 'auto',
-};
 const PROMPT_GALLERY_PASSWORD_SALT = 'nova-pg-2026';
 const IS_DEV = process.env.NODE_ENV !== 'production';
 const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'out');
 const taskRefImages = new Map();
+// 智能重绘 mask:与参考图同属大 base64,仅运行时内存透传,绝不落 PG。
+const taskMasks = new Map();
 // 无 JWT 入口(默认单机使用)的任务归属:同一命名空间,行为等同原单用户。
 // 有 JWT 时按代验身份隔离。sentinel 不含 '/',可安全作为 MinIO key 前缀。
 const STANDALONE_USER_ID = '__standalone__';
@@ -237,6 +232,7 @@ function cleanupTaskRuntimeState(taskId) {
   }
   apiKeys.delete(taskId);
   taskRefImages.delete(taskId);
+  taskMasks.delete(taskId);
   taskSources.delete(taskId);
 }
 
@@ -402,7 +398,7 @@ function pipeFileToResponse(res, filePath, statusCode, headers) {
   stream.pipe(res);
 }
 
-function serveStatic(req, res, pathname) {
+function serveStatic(_req, res, pathname) {
   if (!fs.existsSync(STATIC_DIR)) return false;
   let decodedPath;
   try {
@@ -483,26 +479,6 @@ function normalizeError(error) {
   return message.length > 200 ? message.slice(0, 200) + '…' : message;
 }
 
-function validateEnumValue(value, validValues, fieldName) {
-  if (value === undefined || value === null || value === '') return undefined;
-  if (!validValues.has(value)) {
-    throw new Error(`${fieldName} 参数无效`);
-  }
-  return value;
-}
-
-function normalizeGptImageAdvancedParams(params = {}) {
-  const quality = validateEnumValue(params.gptImageQuality, GPT_IMAGE_QUALITIES, 'quality');
-  const style = validateEnumValue(params.gptImageStyle, GPT_IMAGE_STYLES, 'style');
-  const background = validateEnumValue(params.gptImageBackground, GPT_IMAGE_BACKGROUNDS, 'background');
-
-  return {
-    quality: quality || DEFAULT_GPT_IMAGE_ADVANCED_PARAMS.quality,
-    style: style || DEFAULT_GPT_IMAGE_ADVANCED_PARAMS.style,
-    background: background || DEFAULT_GPT_IMAGE_ADVANCED_PARAMS.background,
-  };
-}
-
 function validateCreatePayload(body) {
   if (!body || typeof body !== 'object') throw new Error('请求体不能为空');
   if (typeof body.apiKey !== 'string' || body.apiKey.trim().length === 0) throw new Error('缺少 API 密钥');
@@ -577,6 +553,10 @@ async function createTask(body, req) {
 
   apiKeys.set(taskId, body.apiKey);
   taskRefImages.set(taskId, body.images);
+  // 智能重绘 mask:仅运行时内存暂存,与参考图一样不写入 requestForDb / PG。
+  if (body.mask && typeof body.mask.data === 'string' && body.mask.data.length > 0) {
+    taskMasks.set(taskId, { data: body.mask.data, mimeType: body.mask.mimeType || 'image/png' });
+  }
   taskSources.set(taskId, source);
   // 递增 pending 计数
   if (source.ip) pendingCountByIp.set(source.ip, (pendingCountByIp.get(source.ip) || 0) + 1);
@@ -586,80 +566,6 @@ async function createTask(body, req) {
   broadcastQueueStatus();
   drainQueue();
   return taskId;
-}
-
-function getGptImageRequestAdvancedParams(request) {
-  return normalizeGptImageAdvancedParams(request);
-}
-
-function createGptImageRequestInit(apiKey, request, resolvedSize, options = {}) {
-  const prompt = request.prompt;
-  const advancedParams = getGptImageRequestAdvancedParams(request);
-  const stream = Boolean(options.stream);
-  // sub2api 模型:把选中的 keyId 作为内部头传给 loopback 代理(代理据此代查 sk- key)
-  const keyIdHeader = options.keyId ? { 'X-Sub2api-Key-Id': String(options.keyId) } : {};
-
-  if (request.mode === 'image-to-image') {
-    const formData = new FormData();
-    formData.append('model', request.model);
-    formData.append('prompt', prompt);
-    formData.append('n', '1');
-    if (stream) {
-      formData.append('stream', 'true');
-    }
-    if (advancedParams) {
-      formData.append('quality', advancedParams.quality);
-      formData.append('background', advancedParams.background);
-      formData.append('output_format', 'png');
-      if (advancedParams.style === 'vivid' || advancedParams.style === 'natural') {
-        formData.append('style', advancedParams.style);
-      }
-    }
-    if (resolvedSize) {
-      formData.append('size', resolvedSize);
-    }
-
-    request.images.forEach((img, index) => {
-      const mimeType = img.mimeType || 'image/png';
-      const extension = mimeType.split('/')[1] || 'png';
-      const bytes = Buffer.from(img.data, 'base64');
-      const blob = new Blob([bytes], { type: mimeType });
-      formData.append('image', blob, `image-${index}.${extension}`);
-    });
-
-    return {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        ...keyIdHeader,
-      },
-      body: formData,
-    };
-  }
-
-  const payload = {
-    prompt,
-    model: request.model,
-    ...(stream ? { stream: true } : {}),
-    ...(resolvedSize ? { size: resolvedSize } : {}),
-    ...(advancedParams ? {
-      quality: advancedParams.quality,
-      background: advancedParams.background,
-      output_format: 'png',
-      ...(advancedParams.style === 'vivid' || advancedParams.style === 'natural' ? { style: advancedParams.style } : {}),
-    } : {}),
-    ...(request.images.length > 0 ? { image: request.images.map(img => `data:${img.mimeType};base64,${img.data}`) } : {}),
-  };
-
-  return {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      ...keyIdHeader,
-    },
-    body: JSON.stringify(payload),
-  };
 }
 
 function parseJsonSafely(text) {
@@ -959,9 +865,10 @@ function drainQueue() {
 async function runTask(taskId) {
   const apiKey = apiKeys.get(taskId);
   const refImages = taskRefImages.get(taskId);
+  const mask = taskMasks.get(taskId);
   try {
     // 网关按归属 userId 跑引擎(状态校验→生成→落 MinIO→收尾)。
-    await taskGateway.runTask(taskId, apiKey, refImages);
+    await taskGateway.runTask(taskId, apiKey, refImages, mask);
   } finally {
     taskGateway.cleanupRuntime(taskId);
     cleanupTaskRuntimeState(taskId);

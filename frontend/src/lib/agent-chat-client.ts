@@ -22,7 +22,7 @@ import type { ImageModelSource } from '@/lib/nova-models';
 import { readSseStream } from '@/lib/sse-stream-parser';
 
 const AGENT_GPT_REQUEST_MAX_ATTEMPTS = 3;
-const AGENT_CHAT_ATTEMPT_TIMEOUT_MS = 45_000;
+const AGENT_CHAT_ATTEMPT_TIMEOUT_MS = 300_000;
 const AGENT_IMAGE_DESCRIBE_ATTEMPT_TIMEOUT_MS = 20_000;
 
 class AgentRequestTimeoutError extends Error {

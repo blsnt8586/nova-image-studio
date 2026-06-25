@@ -24,6 +24,8 @@ export interface ImageModelConfig {
   maxRefImages: number;
   maxOutputSize: ImageOutputSize;
   supportsAdvancedParams: boolean;
+  /** 智能重绘(局部修改):图生图时可框选/涂抹局部区域,带 mask 编辑。仅 openai 协议有意义。 */
+  supportsMaskEdit?: boolean;
   /** sub2api 模型固定走代理;手动模型用户自配。旧配置可能缺省。 */
   source?: ImageModelSource;
   /** sub2api 模型选中的 API Key id(只存 keyId,sk- key 不进浏览器)。 */
@@ -224,6 +226,8 @@ function normalizeImageModelConfig(raw: Partial<ImageModelConfig>): ImageModelCo
     supportsAdvancedParams: protocol === 'openai'
       ? (typeof raw.supportsAdvancedParams === 'boolean' ? raw.supportsAdvancedParams : preset.supportsAdvancedParams)
       : false,
+    // 智能重绘只对 openai 协议有意义;默认关闭,用户在设置中显式开启。
+    supportsMaskEdit: protocol === 'openai' && raw.supportsMaskEdit === true,
   };
 
   // 可选字段:仅在合法时保留,保持旧配置向后兼容。

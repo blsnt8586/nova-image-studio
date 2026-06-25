@@ -7,6 +7,7 @@ import { AttachmentChips } from './AttachmentChips';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { MissingApiKeyDialog } from '@/components/MissingApiKeyDialog';
+import { MaskEditDialog } from '@/components/MaskEditDialog';
 import { QuickPromptDialog } from '@/components/QuickPromptDialog';
 import { PromptOptimizeDialog } from '@/components/PromptOptimizeDialog';
 import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
@@ -27,6 +28,7 @@ import {
   normalizeCustomImageSize,
   normalizeModel,
   supportsCustomSize,
+  supportsMaskEdit,
   type GptImageAdvancedParams,
   type GptImageBackground,
   type GptImageQuality,
@@ -111,6 +113,8 @@ export function ImageGenerationWorkbench({
 }: ImageGenerationWorkbenchProps) {
   const [prompt, setPrompt] = useState('');
   const [pendingFiles, setPendingFiles] = useState<UploadedFile[]>([]);
+  // 智能重绘:对话框开关(mask 和提示词在对话框内一次提交,不保留 pending 状态)。
+  const [maskEditOpen, setMaskEditOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -143,6 +147,8 @@ export function ImageGenerationWorkbench({
   const aspectRatioOptions = useMemo(() => getAspectRatioOptions(model, outputSize), [model, outputSize]);
   const currentMode: WorkbenchMode = pendingFiles.length > 0 ? 'image-to-image' : 'text-to-image';
   const autoLayoutLocked = outputSize === 'auto';
+  // 智能重绘:模型开启即显示入口(hover 画笔按钮 + 对话框内直接提交)。
+  const maskEditEnabled = supportsMaskEdit(model);
   const disabledMessage = '请先在设置中配置 Nova API 密钥，配置完成后即可开始生成图片。';
 
   const handleParamsChange = useCallback((patch: Partial<GenerationParamsValue>) => {
@@ -563,6 +569,33 @@ export function ImageGenerationWorkbench({
     onDraftConsumed?.();
   };
 
+  // 智能重绘:从对话框直接提交(mask + 提示词一次完成,不经过工作台 prompt 输入框)。
+  const handleMaskSubmit = useCallback((maskDataUrl: string, maskPrompt: string) => {
+    const selectionCheck = validateGenerationSelection({ model, outputSize, aspectRatio }, MODEL_OPTIONS);
+    if (!selectionCheck.ok) {
+      dispatchImageActionToast(selectionCheck.message ?? '请完成生成参数选择。', 'error');
+      return;
+    }
+    onSubmitImage({
+      prompt: maskPrompt,
+      files: pendingFiles,
+      outputSize,
+      customSize,
+      aspectRatio,
+      temperature,
+      model,
+      gptImageQuality: gptImageAdvancedParams.quality,
+      gptImageStyle: gptImageAdvancedParams.style,
+      gptImageBackground: gptImageAdvancedParams.background,
+      parallelCount,
+      mask: { dataUrl: maskDataUrl, mimeType: 'image/png' },
+    });
+    setPendingFiles([]);
+    setPrompt('');
+    setUploadError(null);
+    onDraftConsumed?.();
+  }, [model, outputSize, aspectRatio, customSize, temperature, pendingFiles, gptImageAdvancedParams, parallelCount, onSubmitImage, onDraftConsumed]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
@@ -598,6 +631,7 @@ export function ImageGenerationWorkbench({
               <AttachmentChips
                 files={pendingFiles}
                 onRemove={handleRemovePending}
+                onMaskEdit={maskEditEnabled ? () => setMaskEditOpen(true) : undefined}
                 sourceKind="upload"
                 sourceLabel="生图参考图"
                 prompt={prompt}
@@ -722,6 +756,15 @@ export function ImageGenerationWorkbench({
         onOpenChange={setTextAssetPickerOpen}
         onConfirm={handleTextAssetConfirm}
       />
+      {maskEditEnabled && pendingFiles.length > 0 && (
+        <MaskEditDialog
+          open={maskEditOpen}
+          imageSrc={pendingFiles[0].dataUrl}
+          initialPrompt={prompt}
+          onOpenChange={setMaskEditOpen}
+          onSubmit={handleMaskSubmit}
+        />
+      )}
       {pendingTextAsset && createPortal(
         <ConfirmDialog
           title="覆盖当前提示词"

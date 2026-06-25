@@ -43,6 +43,8 @@ export interface ImageToImageSubmitInput {
   gptImageStyle: GptImageStyle;
   gptImageBackground: GptImageBackground;
   parallelCount: ParallelCount;
+  /** 智能重绘:同尺寸 PNG mask 的 dataUrl(透明区=允许修改)。可选。 */
+  mask?: { dataUrl: string; mimeType: string };
 }
 
 /**
@@ -144,6 +146,15 @@ function buildImageReferences(files: ImageToImageSubmitInput['files']): ImageRef
     data: file.dataUrl.split(',')[1] || file.dataUrl,
     mimeType: file.mimeType,
   }));
+}
+
+/** 把 mask 的 dataUrl 转成 {data(base64), mimeType};无 mask 返回 undefined。 */
+function buildMaskReference(mask: ImageToImageSubmitInput['mask']): ImageReference | undefined {
+  if (!mask || typeof mask.dataUrl !== 'string' || mask.dataUrl.length === 0) return undefined;
+  return {
+    data: mask.dataUrl.split(',')[1] || mask.dataUrl,
+    mimeType: mask.mimeType || 'image/png',
+  };
 }
 
 function createBaseJob(
@@ -439,6 +450,7 @@ export async function submitImageToImage(
     mimeType: file.mimeType,
   }));
   const imageReferences = buildImageReferences(input.files);
+  const maskReference = buildMaskReference(input.mask);
   const job = createBaseJob(
     'image-to-image',
     input.prompt,
@@ -473,6 +485,7 @@ export async function submitImageToImage(
       gptImageBackground: input.gptImageBackground,
       parallelCount: input.parallelCount,
       images: imageReferences,
+      ...(maskReference ? { mask: maskReference } : {}),
       keyId: provider.keyId,
     });
 

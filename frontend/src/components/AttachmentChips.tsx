@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { X, ImageIcon, BadgeCheck } from 'lucide-react';
+import { X, ImageIcon, BadgeCheck, Brush } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,8 @@ interface AttachmentChip {
 interface AttachmentChipsProps {
   files: AttachmentChip[];
   onRemove: (id: string) => void;
+  /** 第一张图片的智能重绘回调;传入时在 index=0 的图片 hover 区显示画笔按钮。 */
+  onMaskEdit?: (file: AttachmentChip) => void;
   sourceKind?: AssetSourceKind;
   sourceLabel?: string;
   prompt?: string;
@@ -37,6 +39,7 @@ interface AttachmentChipsProps {
 export function AttachmentChips({
   files,
   onRemove,
+  onMaskEdit,
   sourceKind = 'upload',
   sourceLabel = '用户上传',
   prompt,
@@ -124,6 +127,17 @@ export function AttachmentChips({
                 showUseAsReference={showUseAsReference}
                 className="rounded-lg"
               />
+            )}
+            {/* 智能重绘入口:仅首张图(index=0)且提供 onMaskEdit 时显示画笔按钮。 */}
+            {file.preview && onMaskEdit && index === 0 && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onMaskEdit(file); }}
+                className="absolute bottom-1 right-1 z-20 rounded-md bg-black/60 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                title="智能重绘:涂抹要修改的区域"
+              >
+                <Brush className="h-3.5 w-3.5" />
+              </button>
             )}
             <Button
               variant="secondary"

@@ -32,13 +32,17 @@ function createTaskEngine(deps) {
     }
   }
 
-  async function runTask(taskId, userId, apiKey, refImages) {
+  async function runTask(taskId, userId, apiKey, refImages, mask) {
     const { request, status } = await store.getRequest(taskId, userId);
     if (!request || !apiKey || !isQueued(status)) {
       return;
     }
     if (refImages && refImages.length > 0) {
       request.images = refImages;
+    }
+    // 智能重绘:mask 仅运行时透传(同参考图,不落库)。
+    if (mask && typeof mask.data === 'string' && mask.data.length > 0) {
+      request.mask = mask;
     }
 
     const parallelCount = request.parallelCount || 1;

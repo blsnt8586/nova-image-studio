@@ -465,6 +465,7 @@ export function WorkspaceShell() {
                     onClearAll={scope => setGenerationClearScope(scope)}
                     onCancel={jobId => workspace.setCancelJobId(jobId)}
                     onCheckStatus={handleCheckStatus}
+                    onMaskSubmit={data => void submitImageToImage(data, submitActions, handleSubmitError)}
                   />
                 </div>
               </TabsContent>

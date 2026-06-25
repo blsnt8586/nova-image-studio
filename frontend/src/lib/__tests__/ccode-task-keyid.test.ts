@@ -77,4 +77,32 @@ describe('ccode-task-client — keyId 透传', () => {
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     expect(body.keyId).toBe('7');
   });
+
+  it('createNovaTask 把 mask 放进请求体(智能重绘)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ taskId: 't-2' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await createNovaTask({
+      apiKey: '__sub2api_proxy__',
+      baseUrl: 'https://nova.test/api/proxy',
+      protocol: 'openai',
+      mode: 'image-to-image',
+      prompt: '只改这块',
+      outputSize: '1K',
+      aspectRatio: '1:1',
+      temperature: 1,
+      model: 'gpt-image-2',
+      parallelCount: 1,
+      images: [{ data: 'AAAA', mimeType: 'image/png' }],
+      mask: { data: 'BBBB', mimeType: 'image/png' },
+      keyId: '7',
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.mask).toEqual({ data: 'BBBB', mimeType: 'image/png' });
+  });
 });

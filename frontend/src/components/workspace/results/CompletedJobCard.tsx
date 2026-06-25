@@ -12,6 +12,8 @@ import { resolveStoredImageRef, revokeBlobUrls } from '@/lib/image-downloader';
 import { getModelDisplayName, getOutputSizeLabel } from '@/lib/model-capabilities';
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ConfirmDialog } from '@/components/workspace/dialogs/ConfirmDialog';
+import { MaskEditDialog } from '@/components/MaskEditDialog';
+import type { ImageToImageSubmitInput } from '@/lib/workspace-task-service';
 import {
   copyImagePayload,
   dispatchImageActionToast,
@@ -24,6 +26,7 @@ interface CompletedJobCardProps {
   onClear: () => void;
   onRetry: (job: StoredJob) => void;
   onRetryDownload?: (job: StoredJob) => void | Promise<void>;
+  onMaskSubmit?: (data: ImageToImageSubmitInput) => void;
 }
 
 interface DownloadProgressSummary {
@@ -70,12 +73,14 @@ function getDownloadProgressSummary(progress: StoredJob['imageDownloadProgress']
   };
 }
 
-export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, onRetry, onRetryDownload }: CompletedJobCardProps) {
+export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, onRetry, onRetryDownload, onMaskSubmit }: CompletedJobCardProps) {
   const [imgCopied, setImgCopied] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [maskEditOpen, setMaskEditOpen] = useState(false);
+  const [maskEditImageSrc, setMaskEditImageSrc] = useState('');
   const [assetMenuOpen, setAssetMenuOpen] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
@@ -230,6 +235,30 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
     setPreviewImages(resolved.map(getImageSrc).filter(Boolean));
     setPreviewOpen(true);
   };
+
+  const handleMaskEdit = useCallback((imageSrc: string) => {
+    setMaskEditImageSrc(imageSrc);
+    setPreviewOpen(false);
+    setMaskEditOpen(true);
+  }, []);
+
+  const handleMaskSubmit = useCallback((maskDataUrl: string, prompt: string) => {
+    if (!onMaskSubmit || !maskEditImageSrc) return;
+    onMaskSubmit({
+      prompt,
+      files: [{ id: 'mask-src', name: 'image.png', dataUrl: maskEditImageSrc, mimeType: 'image/png' }],
+      outputSize: job.output_size ?? 'auto',
+      customSize: job.custom_size,
+      aspectRatio: job.aspect_ratio ?? 'auto',
+      temperature: job.temperature ?? 1,
+      model: job.model,
+      gptImageQuality: job.gptImageQuality ?? 'auto',
+      gptImageStyle: job.gptImageStyle ?? 'auto',
+      gptImageBackground: job.gptImageBackground ?? 'auto',
+      parallelCount: 1,
+      mask: { dataUrl: maskDataUrl, mimeType: 'image/png' },
+    });
+  }, [onMaskSubmit, maskEditImageSrc, job]);
 
   useEffect(() => {
     if (!lazyLoad.isVisible) return;
@@ -457,6 +486,18 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
           alt={job.prompt}
           onClose={() => setPreviewOpen(false)}
           actionPayloads={actionPayloads}
+          showMaskEdit={Boolean(onMaskSubmit)}
+          onMaskEdit={handleMaskEdit}
+        />,
+        document.body
+      )}
+
+      {maskEditOpen && createPortal(
+        <MaskEditDialog
+          open={maskEditOpen}
+          imageSrc={maskEditImageSrc}
+          onOpenChange={setMaskEditOpen}
+          onSubmit={handleMaskSubmit}
         />,
         document.body
       )}

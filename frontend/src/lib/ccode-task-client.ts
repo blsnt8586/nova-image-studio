@@ -50,6 +50,8 @@ export interface CreateNovaTaskInput {
   gptImageBackground?: GptImageBackground;
   parallelCount: number;
   images: ImageReference[];
+  /** 智能重绘:同尺寸 PNG mask(透明区=允许修改)。仅运行时透传,后端不落库。 */
+  mask?: ImageReference;
   /** sub2api 模型选中的 API Key id;后端据此向 sub2api 代查 sk- key。 */
   keyId?: string;
 }

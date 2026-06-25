@@ -74,6 +74,35 @@ describe('nova-models — source/keyId 字段', () => {
   });
 });
 
+describe('nova-models — supportsMaskEdit(智能重绘)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('openai 协议保留用户开启的 supportsMaskEdit', () => {
+    saveRegistry(baseRegistry({ supportsMaskEdit: true }));
+    const reg = loadRegistry();
+    expect(reg.imageModels[0].supportsMaskEdit).toBe(true);
+  });
+
+  it('旧配置缺省 supportsMaskEdit 时默认为 false', () => {
+    saveRegistry(baseRegistry());
+    const reg = loadRegistry();
+    expect(reg.imageModels[0].supportsMaskEdit).toBe(false);
+  });
+
+  it('google 协议强制为 false(无 mask 能力)', () => {
+    saveRegistry(baseRegistry({
+      protocol: 'google',
+      builtinPreset: 'gemini-3-pro-image-preview',
+      modelId: 'gemini-3-pro-image-preview',
+      supportsMaskEdit: true,
+    }));
+    const reg = loadRegistry();
+    expect(reg.imageModels[0].supportsMaskEdit).toBe(false);
+  });
+});
+
 function textRegistry(overrides: Partial<NovaModelRegistry['textModels'][number]> = {}): NovaModelRegistry {
   return {
     imageModels: [],

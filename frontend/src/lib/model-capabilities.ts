@@ -238,6 +238,14 @@ export function supportsGptImageAdvancedParams(model: string): boolean {
   return Boolean(preset?.supportsAdvancedParams);
 }
 
+/**
+ * 智能重绘(局部修改)是否可用:取决于该模型配置里用户是否显式开启。
+ * 仅在已配置的图片模型上有意义;无配置 / 未知模型一律 false。
+ */
+export function supportsMaskEdit(model: string): boolean {
+  return Boolean(getModelConfig(model)?.supportsMaskEdit);
+}
+
 export function normalizeGptImageQuality(value?: string): GptImageQuality {
   return GPT_IMAGE_QUALITY_OPTIONS.some(option => option.value === value)
     ? (value as GptImageQuality)

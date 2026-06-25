@@ -627,34 +627,24 @@ export function PromptGalleryImagePreviewModal({
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex touch-none select-none items-center justify-center bg-black/80 transition-opacity duration-150 ${
+      className={`fixed inset-0 z-50 flex touch-none select-none items-center justify-center bg-black/40 transition-opacity duration-150 ${
         isMounted && !isClosing ? 'opacity-100' : 'opacity-0'
       }`}
-      style={{ 
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100vw',
-        height: '100vh',
-        overflow: 'hidden',
-        touchAction: 'none',
-        willChange: 'opacity'
-      }}
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', touchAction: 'none', willChange: 'opacity' }}
+      onClick={handleClose}
       onWheel={handleWheel}
-      onTouchMove={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
+      onTouchMove={(e) => { e.preventDefault(); e.stopPropagation(); }}
     >
+      <div
+        className={`relative flex h-[80vh] w-[80vw] items-center justify-center overflow-hidden rounded-2xl bg-black/80 shadow-2xl transition-all duration-150 ${
+          isMounted && !isClosing ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
       {/* Close */}
       <button
         onClick={handleClose}
-        className={`absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 text-white/70 hover:text-white hover:bg-black/60 flex items-center justify-center transition-all duration-150 z-10 ${
-          isMounted && !isClosing ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
-        }`}
-        style={{ willChange: 'opacity, transform' }}
+        className="absolute top-4 right-4 w-9 h-9 rounded-full bg-black/40 text-white/70 hover:text-white hover:bg-black/60 flex items-center justify-center transition-colors z-10"
       >
         <X className="w-5 h-5" />
       </button>
@@ -665,20 +655,14 @@ export function PromptGalleryImagePreviewModal({
           <button
             onClick={prevImage}
             disabled={currentIndex === 0}
-            className={`absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 text-white/70 hover:text-white hover:bg-black/60 flex items-center justify-center transition-all duration-150 z-10 disabled:opacity-30 disabled:cursor-not-allowed ${
-              isMounted && !isClosing ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'
-            }`}
-            style={{ willChange: 'opacity, transform' }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 text-white/70 hover:text-white hover:bg-black/60 flex items-center justify-center transition-colors z-10 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <button
             onClick={nextImage}
             disabled={currentIndex === images.length - 1}
-            className={`absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 text-white/70 hover:text-white hover:bg-black/60 flex items-center justify-center transition-all duration-150 z-10 disabled:opacity-30 disabled:cursor-not-allowed ${
-              isMounted && !isClosing ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4'
-            }`}
-            style={{ willChange: 'opacity, transform' }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/40 text-white/70 hover:text-white hover:bg-black/60 flex items-center justify-center transition-colors z-10 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <ChevronRight className="w-6 h-6" />
           </button>
@@ -687,19 +671,13 @@ export function PromptGalleryImagePreviewModal({
 
       {/* Image counter */}
       {isMultiple && (
-        <div className={`absolute top-4 left-1/2 -translate-x-1/2 bg-black/70 rounded-full px-4 py-1.5 z-10 transition-all duration-150 ${
-          isMounted && !isClosing ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'
-        }`}
-        style={{ willChange: 'opacity, transform' }}>
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/70 rounded-full px-4 py-1.5 z-10">
           <span className="text-white/80 text-sm tabular-nums">{currentIndex + 1} / {images.length}</span>
         </div>
       )}
 
       {/* Toolbar */}
-      <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/70 rounded-full px-2 py-1.5 z-10 transition-all duration-150 ${
-        isMounted && !isClosing ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
-      }`}
-      style={{ willChange: 'opacity, transform' }}>
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/70 rounded-full px-2 py-1.5 z-10">
         <button onClick={zoomOut} className="w-8 h-8 rounded-full flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="缩小">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg>
         </button>
@@ -728,23 +706,22 @@ export function PromptGalleryImagePreviewModal({
 
       {/* Image container */}
       <div
-        className={`h-screen w-screen touch-none overflow-hidden transition-all duration-150 ${
-          isMounted && !isClosing ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
-        }`}
+        className="h-full w-full touch-none overflow-hidden"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        style={{ cursor: dragging ? 'grabbing' : 'grab', willChange: 'transform, opacity' }}
+        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
       >
         <img
           src={proxyImage(currentSrc)}
           alt={title}
           draggable={false}
-          className="w-screen h-screen object-contain origin-center transition-transform duration-75"
+          className="w-full h-full object-contain origin-center transition-transform duration-75"
           style={{ transform: `scale(${scale}) translate(${pos.x / scale}px, ${pos.y / scale}px)` }}
           onClick={(e) => e.stopPropagation()}
         />
+      </div>
       </div>
     </div>
   );

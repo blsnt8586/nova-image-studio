@@ -259,6 +259,7 @@ interface HistoryJobListProps {
   onHistoryFilterChange?: (filter: GenerationHistoryFilter) => void;
   onCancel: (jobId: string) => void;
   onCheckStatus: (job: StoredJob) => void;
+  onMaskSubmit?: (data: import('@/lib/workspace-task-service').ImageToImageSubmitInput) => void;
 }
 
 export function HistoryJobList({
@@ -280,6 +281,7 @@ export function HistoryJobList({
   onHistoryFilterChange,
   onCancel,
   onCheckStatus,
+  onMaskSubmit,
 }: HistoryJobListProps) {
   const hasActiveTimers = useMemo(() => active && jobs.some(job => isWaitingJob(job)), [active, jobs]);
   const now = useNow(hasActiveTimers);
@@ -291,7 +293,7 @@ export function HistoryJobList({
       return <WaitingJobCard job={job} now={now} isChecking={checkingJobIds.has(job.id)} cooldownEnd={cooldowns.get(job.id)} onCancel={onCancel} onCheckStatus={onCheckStatus} />;
     }
     if (hasImage) {
-      return <CompletedJobCard job={job} onClear={() => onClear(job.id)} onRetry={onRetry} onRetryDownload={onRetryDownload} />;
+      return <CompletedJobCard job={job} onClear={() => onClear(job.id)} onRetry={onRetry} onRetryDownload={onRetryDownload} onMaskSubmit={onMaskSubmit} />;
     }
     if (job.status === 'failed') {
       // terminal=true → 后端明确判定不可恢复，不显示"查看进度"

@@ -51,10 +51,10 @@ function createPgTaskGateway(deps) {
     return owner === undefined || owner === null ? null : String(owner);
   }
 
-  async function runTask(taskId, apiKey, refImages) {
+  async function runTask(taskId, apiKey, refImages, mask) {
     const userId = await resolveOwner(taskId);
     if (!userId) return; // 无归属(已删/重启失败) → 跳过
-    await engine.runTask(taskId, userId, apiKey, refImages);
+    await engine.runTask(taskId, userId, apiKey, refImages, mask);
   }
 
   async function serialize(taskId) {

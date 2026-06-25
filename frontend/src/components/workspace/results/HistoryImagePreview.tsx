@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Maximize2, Wand2, X } from 'lucide-react';
+import { Brush, ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Maximize2, Wand2, X } from 'lucide-react';
 import { runImageAction, type ImageActionPayload } from '@/lib/image-actions';
 
 function getDistance(t1: { clientX: number; clientY: number }, t2: { clientX: number; clientY: number }) {
@@ -26,6 +26,8 @@ interface HistoryImagePreviewProps {
   showCopy?: boolean;
   showAddToAssets?: boolean;
   showUseAsReference?: boolean;
+  showMaskEdit?: boolean;
+  onMaskEdit?: (imageSrc: string) => void;
 }
 
 export function HistoryImagePreview({
@@ -40,6 +42,8 @@ export function HistoryImagePreview({
   showCopy = true,
   showAddToAssets = true,
   showUseAsReference = true,
+  showMaskEdit = false,
+  onMaskEdit,
 }: HistoryImagePreviewProps) {
   const [currentIndex, setCurrentIndex] = useState(() => clampImageIndex(initialIndex, images.length));
   const [scale, setScaleState] = useState(1);
@@ -325,6 +329,11 @@ export function HistoryImagePreview({
         {currentPayload && showUseAsReference && (
           <button onClick={() => void runImageAction('use-as-reference', currentPayload)} className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white" title="作为图生图参考">
             <Wand2 className="w-4 h-4" />
+          </button>
+        )}
+        {showMaskEdit && onMaskEdit && (
+          <button onClick={() => onMaskEdit(currentSrc)} className="flex h-8 w-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white" title="智能重绘">
+            <Brush className="w-4 h-4" />
           </button>
         )}
       </div>

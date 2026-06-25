@@ -64,7 +64,16 @@ describe('pg-task-gateway', () => {
     const gw = createPgTaskGateway(deps);
     await gw.createTask('u9', { taskId: 't1', mode: 'm', requestForDb: {}, parallelCount: 1 });
     await gw.runTask('t1', 'key-abc', [{ mimeType: 'image/png' }]);
-    expect(deps.engine.runTask).toHaveBeenCalledWith('t1', 'u9', 'key-abc', [{ mimeType: 'image/png' }]);
+    expect(deps.engine.runTask).toHaveBeenCalledWith('t1', 'u9', 'key-abc', [{ mimeType: 'image/png' }], undefined);
+  });
+
+  it('runTask forwards mask to engine (智能重绘)', async () => {
+    const deps = makeDeps();
+    const gw = createPgTaskGateway(deps);
+    await gw.createTask('u9', { taskId: 't1', mode: 'm', requestForDb: {}, parallelCount: 1 });
+    const mask = { data: 'bWFzaw==', mimeType: 'image/png' };
+    await gw.runTask('t1', 'key-abc', [{ mimeType: 'image/png' }], mask);
+    expect(deps.engine.runTask).toHaveBeenCalledWith('t1', 'u9', 'key-abc', [{ mimeType: 'image/png' }], mask);
   });
 
   it('runTask resolves owner from repo when not tracked (restart safety)', async () => {
@@ -72,7 +81,7 @@ describe('pg-task-gateway', () => {
     const gw = createPgTaskGateway(deps);
     await gw.runTask('t1', 'key', []);
     expect(deps.tasksRepo.getTaskOwner).toHaveBeenCalledWith('t1');
-    expect(deps.engine.runTask).toHaveBeenCalledWith('t1', 'u1', 'key', []);
+    expect(deps.engine.runTask).toHaveBeenCalledWith('t1', 'u1', 'key', [], undefined);
   });
 
   it('runTask is a no-op when no owner resolvable', async () => {

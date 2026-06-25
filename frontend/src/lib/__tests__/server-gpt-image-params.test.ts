@@ -8,6 +8,11 @@ const serverSource = fs.readFileSync(
   path.resolve(testDir, '../../../../backend/server.js'),
   'utf8',
 );
+// GPT Image 请求体构造逻辑已抽到独立模块(便于单测);转发字段断言读这里。
+const gptImageRequestSource = fs.readFileSync(
+  path.resolve(testDir, '../../../../backend/src/proxy/gpt-image-request.js'),
+  'utf8',
+);
 
 describe('backend GPT Image advanced params forwarding', () => {
   it('does not contain legacy GPT Image SKU gating or token suffix logic', () => {
@@ -19,17 +24,17 @@ describe('backend GPT Image advanced params forwarding', () => {
   });
 
   it('forwards quality/background/output_format and conditional style in multipart edits', () => {
-    expect(serverSource).toContain("formData.append('quality', advancedParams.quality)");
-    expect(serverSource).toContain("formData.append('background', advancedParams.background)");
-    expect(serverSource).toContain("formData.append('output_format', 'png')");
-    expect(serverSource).toContain("formData.append('style', advancedParams.style)");
+    expect(gptImageRequestSource).toContain("formData.append('quality', advancedParams.quality)");
+    expect(gptImageRequestSource).toContain("formData.append('background', advancedParams.background)");
+    expect(gptImageRequestSource).toContain("formData.append('output_format', 'png')");
+    expect(gptImageRequestSource).toContain("formData.append('style', advancedParams.style)");
   });
 
   it('forwards quality/background/output_format and conditional style in JSON generations', () => {
-    expect(serverSource).toContain('quality: advancedParams.quality');
-    expect(serverSource).toContain('background: advancedParams.background');
-    expect(serverSource).toContain("output_format: 'png'");
-    expect(serverSource).toContain("advancedParams.style === 'vivid' || advancedParams.style === 'natural' ? { style: advancedParams.style } : {}");
+    expect(gptImageRequestSource).toContain('quality: advancedParams.quality');
+    expect(gptImageRequestSource).toContain('background: advancedParams.background');
+    expect(gptImageRequestSource).toContain("output_format: 'png'");
+    expect(gptImageRequestSource).toContain("advancedParams.style === 'vivid' || advancedParams.style === 'natural' ? { style: advancedParams.style } : {}");
   });
 
   it('routes OpenAI image endpoint by mode rather than legacy model names', () => {

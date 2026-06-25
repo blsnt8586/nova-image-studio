@@ -99,4 +99,27 @@ describe('task-engine runTask', () => {
     const passedRequest = generate.mock.calls[0][1];
     expect(passedRequest.images).toEqual([{ mimeType: 'image/png' }]);
   });
+
+  it('attaches mask from runtime when provided (智能重绘)', async () => {
+    const store = makeStore();
+    store.getRequest = vi.fn(async () => ({ request: { parallelCount: 1 }, status: 'queued' }));
+    const generate = vi.fn(async () => 'aGk=');
+    const engine = createTaskEngine({ store, generate, broadcast: vi.fn(), ttlMs: 1000 });
+
+    const mask = { data: 'bWFzaw==', mimeType: 'image/png' };
+    await engine.runTask('t1', '42', 'apikey', [{ mimeType: 'image/png' }], mask);
+    const passedRequest = generate.mock.calls[0][1];
+    expect(passedRequest.mask).toEqual(mask);
+  });
+
+  it('leaves request.mask unset when no mask provided', async () => {
+    const store = makeStore();
+    store.getRequest = vi.fn(async () => ({ request: { parallelCount: 1 }, status: 'queued' }));
+    const generate = vi.fn(async () => 'aGk=');
+    const engine = createTaskEngine({ store, generate, broadcast: vi.fn(), ttlMs: 1000 });
+
+    await engine.runTask('t1', '42', 'apikey', [{ mimeType: 'image/png' }]);
+    const passedRequest = generate.mock.calls[0][1];
+    expect(passedRequest.mask).toBeUndefined();
+  });
 });
